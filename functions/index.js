@@ -629,6 +629,25 @@ function normalizePointOrg(input) {
   };
 }
 
+function careerOneStopConfig() {
+  return {
+    userId: process.env.CAREERONESTOP_USER_ID || process.env.COS_USER_ID || '',
+    token: process.env.CAREERONESTOP_API_TOKEN || process.env.COS_API_TOKEN || '',
+  };
+}
+
+async function fetchCareerOneStopJson(path) {
+  const { userId, token } = careerOneStopConfig();
+  if (!userId || !token) return null;
+  return fetchJson(`https://api.careeronestop.org/v1/${path.replace('{userId}', encodeURIComponent(userId))}`, {
+    signal: AbortSignal.timeout(30000),
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: 'application/json',
+    },
+  });
+}
+
 function normalizeOrgName(name = '') {
   return String(name)
     .toLowerCase()
@@ -1475,6 +1494,118 @@ async function searchUsaspendingCapability({ category, keyword, agencyName = '',
   return Array.from(orgs.values()).slice(0, limit);
 }
 
+function normalizeServiceList(services) {
+  return (Array.isArray(services) ? services : [])
+    .map((service) => service.ServiceName || service.name || service)
+    .filter(Boolean)
+    .slice(0, 20);
+}
+
+function normalizeCareerOneStopAjc(row) {
+  const state = String(row.StateAbbr || row.state || '').toUpperCase();
+  const lat = Number(row.Latitude);
+  const lng = Number(row.Longitude);
+  return normalizePointOrg({
+    id: `workforce-ajc-${row.ID || md5(`${row.Name}:${row.Address1}:${state}`)}`,
+    name: row.Name,
+    category: 'workforce',
+    subtype: row.ProgramType || 'American Job Center',
+    city: row.City,
+    state,
+    lat: Number.isFinite(lat) ? lat : undefined,
+    lng: Number.isFinite(lng) ? lng : undefined,
+    source: 'CareerOneStop American Job Centers',
+    source_id: row.ID || '',
+    website: row.WebSiteUrl || '',
+    phone: row.Phone || '',
+    data_confidence: Number.isFinite(lat) && Number.isFinite(lng) ? 98 : 72,
+    extra: {
+      address: [row.Address1, row.Address2].filter(Boolean).join(' '),
+      zip: row.Zip || '',
+      email: row.GeneralEmail || '',
+      center_status: row.CenterStatus || '',
+      center_is_open: row.CenterIsOpen || '',
+      open_hours: row.OpenHour || '',
+      veteran_rep: row.VeteranRep || '',
+      business_rep: row.BusinessRep || '',
+      youth_contact: row.YSContact || '',
+      youth_contact_email: row.YSContactEmail || '',
+      last_source_updated: row.LastUpdated || '',
+      worker_services: normalizeServiceList(row.WorkersServices),
+      business_services: normalizeServiceList(row.BusinessServices),
+      youth_services: normalizeServiceList(row.YouthServices),
+      funding_enriched: false,
+      award_count: 0,
+      total_obligations: 0,
+      latest_award_date: '',
+      awarding_agencies: [],
+      programs: [],
+    },
+  });
+}
+
+function normalizeCareerOneStopBoard(row) {
+  const state = String(row.STATE || row.state || '').toUpperCase();
+  const lat = Number(row.GEOCODE?.LAT);
+  const lng = Number(row.GEOCODE?.LON);
+  const contacts = Array.isArray(row.CONTACTS) ? row.CONTACTS : [];
+  const primaryContact = contacts[0] || {};
+  return normalizePointOrg({
+    id: `workforce-board-${row.ID || md5(`${row.BOARD}:${row.ADDR1}:${state}`)}`,
+    name: row.BOARD || row.COMPANY,
+    category: 'workforce',
+    subtype: row.TYPE || row.LEVEL || 'Workforce Board',
+    city: row.CITY || primaryContact.CCITY,
+    state,
+    lat: Number.isFinite(lat) ? lat : undefined,
+    lng: Number.isFinite(lng) ? lng : undefined,
+    source: 'CareerOneStop Workforce Boards',
+    source_id: row.ID || '',
+    website: row.URL || primaryContact.CURL || '',
+    phone: primaryContact.CPHONE || '',
+    data_confidence: Number.isFinite(lat) && Number.isFinite(lng) ? 96 : 72,
+    extra: {
+      address: [row.ADDR1, row.ADDR2].filter(Boolean).join(' '),
+      zip: row.ZIP || primaryContact.CZIP || '',
+      counties: row.COUNTIES || '',
+      cities_served: row.CITIES || '',
+      towns_served: row.TOWNS || '',
+      board_level: row.LEVEL || '',
+      board_type: row.TYPE || '',
+      company: row.COMPANY || '',
+      contact_name: primaryContact.CNAME || '',
+      contact_title: primaryContact.CTITLE || '',
+      contact_email: primaryContact.CEMAIL || '',
+      funding_enriched: false,
+      award_count: 0,
+      total_obligations: 0,
+      latest_award_date: '',
+      awarding_agencies: [],
+      programs: [],
+    },
+  });
+}
+
+async function fetchCareerOneStopWorkforceOrgs(limit = 3000, state = '') {
+  const [ajcData, boardData] = await Promise.all([
+    fetchCareerOneStopJson('ajcfinder/{userId}').catch((err) => {
+      console.warn('[AutoNateAI Intel Functions] CareerOneStop AJC fetch failed', err instanceof Error ? err.message : err);
+      return null;
+    }),
+    fetchCareerOneStopJson('BoardsCouncilsFinder/{userId}').catch((err) => {
+      console.warn('[AutoNateAI Intel Functions] CareerOneStop boards fetch failed', err instanceof Error ? err.message : err);
+      return null;
+    }),
+  ]);
+  const ajcs = (ajcData?.OneStopCenterList || [])
+    .map(normalizeCareerOneStopAjc)
+    .filter((org) => org.name && (!state || org.state === state));
+  const boards = (boardData?.BOARDS || [])
+    .map(normalizeCareerOneStopBoard)
+    .filter((org) => org.name && (!state || org.state === state));
+  return [...ajcs, ...boards].slice(0, limit);
+}
+
 async function fetchWorkforceOrgs(limit = 1000, state = '') {
   const terms = [
     'workforce development',
@@ -1492,6 +1623,30 @@ async function fetchWorkforceOrgs(limit = 1000, state = '') {
   }
   const byId = new Map(all.map((record) => [record.id, { ...record, subtype: record.subtype || 'Workforce funded recipient' }]));
   return Array.from(byId.values()).slice(0, limit);
+}
+
+async function fetchWorkforceLayerOrgs(limit = 3000, state = '') {
+  const fundingRecipients = await fetchWorkforceOrgs(Math.min(limit, 1000), state);
+  const serviceOrgs = await fetchCareerOneStopWorkforceOrgs(limit, state);
+  if (!serviceOrgs.length) {
+    return {
+      orgs: fundingRecipients,
+      fundingRecipients,
+      source_mode: careerOneStopConfig().token ? 'usaspending_fallback' : 'usaspending_fallback_missing_careeronestop_token',
+    };
+  }
+  const awardMap = new Map(fundingRecipients.map((recipient) => [normalizeOrgName(recipient.name), {
+    recipient_name: recipient.name,
+    state: recipient.state,
+    city: recipient.city,
+    award_count: Number(recipient.award_count || 0),
+    total_obligations: Number(recipient.total_obligations || 0),
+    latest_award_date: recipient.latest_award_date || '',
+    awarding_agencies: recipient.awarding_agencies || [],
+    programs: recipient.programs || [],
+  }]).filter(([key]) => key));
+  const enriched = attachAwardAggregates(serviceOrgs, awardMap, { allowPartial: true });
+  return { orgs: enriched, fundingRecipients, source_mode: 'careeronestop_service_locations' };
 }
 
 const faithTerms = ['church', 'ministries', 'ministry', 'mission', 'faith', 'baptist', 'methodist', 'catholic', 'synagogue', 'mosque', 'temple'];
@@ -2565,6 +2720,7 @@ async function readCapabilityCollection(collectionName, req) {
 
 app.get('/api/education-orgs', cache(300000, async (req) => readCapabilityCollection('education_orgs', req)));
 app.get('/api/workforce-orgs', cache(300000, async (req) => readCapabilityCollection('workforce_orgs', req)));
+app.get('/api/workforce-funding-recipients', cache(300000, async (req) => readCapabilityCollection('workforce_funding_recipients', req)));
 app.get('/api/health-orgs', cache(300000, async (req) => readCapabilityCollection('health_orgs', req)));
 app.get('/api/funded-faith-orgs', cache(300000, async (req) => readCapabilityCollection('funded_faith_orgs', req)));
 
@@ -2660,10 +2816,24 @@ app.all('/api/workforce-orgs/update', async (req, res) => {
   try {
     const state = req.query.state ? String(req.query.state).toUpperCase() : '';
     const limit = Math.min(Number(req.query.limit || req.body?.limit || 1000), 3000);
-    const orgs = await fetchWorkforceOrgs(limit, state);
-    if (!state) await clearCollection('workforce_orgs');
+    const { orgs, fundingRecipients, source_mode } = await fetchWorkforceLayerOrgs(limit, state);
+    if (state) {
+      await clearCollectionWhereState('workforce_orgs', state);
+      await clearCollectionWhereState('workforce_funding_recipients', state);
+    } else {
+      await clearCollection('workforce_orgs');
+      await clearCollection('workforce_funding_recipients');
+    }
     await writeCollection('workforce_orgs', orgs);
-    res.json({ inserted_or_updated: orgs.length, state: state || 'ALL', timestamp: new Date().toISOString() });
+    await writeCollection('workforce_funding_recipients', fundingRecipients);
+    res.json({
+      inserted_or_updated: orgs.length,
+      funding_recipients: fundingRecipients.length,
+      source_mode,
+      careeronestop_configured: Boolean(careerOneStopConfig().token && careerOneStopConfig().userId),
+      state: state || 'ALL',
+      timestamp: new Date().toISOString(),
+    });
   } catch (err) {
     console.error('[AutoNateAI Intel Functions] Workforce org update failed', err);
     res.status(500).json({ error: 'Workforce org update failed', detail: err instanceof Error ? err.message : 'Unknown error' });
