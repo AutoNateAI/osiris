@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Layers, BarChart3, Newspaper, Search, Share2, Map as MapIcon, X, Globe, MapPinned, Radar, Satellite, Moon, ExternalLink, AlertTriangle, Building2, RadioTower, Activity, Shield, Database, Wifi } from 'lucide-react';
+import { Layers, BarChart3, Newspaper, Search, Share2, Map as MapIcon, X, Globe, MapPinned, Radar, Satellite, Moon, Sun, ExternalLink, AlertTriangle, Building2, RadioTower, Activity, Shield, Database, Wifi } from 'lucide-react';
 import IntelFeed from '@/components/IntelFeed';
 import MarketsPanel from '@/components/MarketsPanel';
 import SearchBar from '@/components/SearchBar';
@@ -114,6 +114,7 @@ export default function Dashboard() {
   const [mobilePanel, setMobilePanel] = useState<'layers'|'markets'|'intel'|'search'|'recon'|null>(null);
   const [mapProjection, setMapProjection] = useState<'globe'|'mercator'>('globe');
   const [mapStyle, setMapStyle] = useState<'dark'|'satellite'>('dark');
+  const [siteTheme, setSiteTheme] = useState<'dark'|'light'>('dark');
   const [sweepData, setSweepData] = useState<any>(null);
   const [scanTargets, setScanTargets] = useState<any[]>([]);
 
@@ -154,6 +155,19 @@ export default function Dashboard() {
     const splashTimer = setTimeout(() => setShowSplash(false), 2500);
     return () => clearTimeout(splashTimer);
   }, []);
+
+  useEffect(() => {
+    const savedTheme = window.localStorage.getItem('autonateai-intel-theme');
+    if (savedTheme === 'light' || savedTheme === 'dark') {
+      setSiteTheme(savedTheme);
+    }
+  }, []);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = siteTheme;
+    document.documentElement.style.colorScheme = siteTheme;
+    window.localStorage.setItem('autonateai-intel-theme', siteTheme);
+  }, [siteTheme]);
 
   // URL state: parse on mount
   useEffect(() => {
@@ -618,7 +632,7 @@ export default function Dashboard() {
           data={data} 
           activeLayers={activeLayers} 
           projection={mapProjection} 
-          mapStyle={mapStyle === 'satellite' ? 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}' : 'dark'} 
+          mapStyle={mapStyle === 'satellite' ? 'satellite' : siteTheme}
           onEntityClick={handleEntityClick} 
           onMouseCoords={handleMouseCoords} 
           onRightClick={handleRightClick} 
@@ -664,6 +678,22 @@ export default function Dashboard() {
           )}
           <span className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 text-[9px] font-mono text-[var(--text-muted)] whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity glass-panel px-2 py-1 z-[300]">
             {mapStyle === 'dark' ? 'SATELLITE' : 'NIGHT MODE'}
+          </span>
+        </button>
+
+        {/* Full UI Theme Toggle */}
+        <button
+          onClick={() => setSiteTheme(t => t === 'dark' ? 'light' : 'dark')}
+          className="glass-panel p-2.5 pointer-events-auto hover:border-[var(--gold-primary)]/40 transition-colors group relative"
+          title={siteTheme === 'dark' ? 'Light Theme' : 'Dark Theme'}
+        >
+          {siteTheme === 'dark' ? (
+            <Sun className="w-4 h-4 text-[var(--gold-primary)] group-hover:scale-110 transition-transform" />
+          ) : (
+            <Moon className="w-4 h-4 text-[var(--cyan-primary)] group-hover:scale-110 transition-transform" />
+          )}
+          <span className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 text-[9px] font-mono text-[var(--text-muted)] whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity glass-panel px-2 py-1 z-[300]">
+            {siteTheme === 'dark' ? 'LIGHT THEME' : 'DARK THEME'}
           </span>
         </button>
       </motion.div>

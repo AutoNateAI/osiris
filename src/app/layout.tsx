@@ -174,6 +174,7 @@ const jsonLd = {
 };
 
 import ErrorBoundary from '@/components/ErrorBoundary';
+import AuthGate from '@/components/AuthGate';
 
 export default function RootLayout({
   children,
@@ -199,9 +200,11 @@ export default function RootLayout({
 
       </head>
       <body className="antialiased">
-        <ErrorBoundary name="AutoNateAI Intel Core">
-          {children}
-        </ErrorBoundary>
+        <AuthGate>
+          <ErrorBoundary name="AutoNateAI Intel Core">
+            {children}
+          </ErrorBoundary>
+        </AuthGate>
       </body>
     </html>
   );

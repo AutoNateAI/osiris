@@ -1059,7 +1059,7 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
     }
   }, [mapReady, projection]);
 
-  // Satellite / Dark style switching
+  // Base theme / satellite style switching
   useEffect(() => {
     if (!mapReady || !mapRef.current) return;
     if (mapStyle === prevStyleRef.current) return;
@@ -1067,7 +1067,25 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
     const map = mapRef.current;
 
     try {
-      if (mapStyle !== 'dark') {
+      if (mapStyle === 'light') {
+        if (!map.getSource('light-tiles')) {
+          map.addSource('light-tiles', {
+            type: 'raster',
+            tiles: ['https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png'],
+            tileSize: 256,
+            maxzoom: 18,
+          });
+          map.addLayer({ id: 'light-layer', type: 'raster', source: 'light-tiles', paint: { 'raster-opacity': 1 } }, 'day-night-fill');
+        } else {
+          map.setLayoutProperty('light-layer', 'visibility', 'visible');
+        }
+        if (map.getLayer('satellite-layer')) {
+          map.setLayoutProperty('satellite-layer', 'visibility', 'none');
+        }
+      } else if (mapStyle === 'satellite') {
+        if (map.getLayer('light-layer')) {
+          map.setLayoutProperty('light-layer', 'visibility', 'none');
+        }
         // Add satellite raster tiles
         if (!map.getSource('satellite-tiles')) {
           map.addSource('satellite-tiles', {
@@ -1081,6 +1099,9 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
           map.setLayoutProperty('satellite-layer', 'visibility', 'visible');
         }
       } else {
+        if (map.getLayer('light-layer')) {
+          map.setLayoutProperty('light-layer', 'visibility', 'none');
+        }
         if (map.getLayer('satellite-layer')) {
           map.setLayoutProperty('satellite-layer', 'visibility', 'none');
         }
