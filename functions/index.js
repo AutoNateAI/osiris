@@ -780,6 +780,34 @@ async function geocodeUsAddress(parts = []) {
   }
 }
 
+const publicWorkforceCenterSeeds = [
+  { name: 'Virginia Workforce Center - Alexandria Cherokee Avenue', address: '5520 Cherokee Ave Suite 100', city: 'Alexandria', state: 'VA', source_url: 'https://virginiaworks.gov/locations/' },
+  { name: 'Virginia Workforce Center - Alexandria Mark Center', address: '4850 Mark Center Drive Suite 100', city: 'Alexandria', state: 'VA', source_url: 'https://virginiaworks.gov/locations/' },
+  { name: 'Virginia Workforce Center - Arlington County', address: '2100 Washington Boulevard First Floor', city: 'Arlington', state: 'VA', source_url: 'https://virginiaworks.gov/locations/' },
+  { name: 'Virginia Workforce Center - Bristol', address: '300 Towne Center Drive Suite 40', city: 'Bristol', state: 'VA', source_url: 'https://virginiaworks.gov/locations/' },
+  { name: 'Virginia Workforce Center - Charlottesville', address: '944 Glenwood Station Lane Suite 103', city: 'Charlottesville', state: 'VA', source_url: 'https://virginiaworks.gov/locations/' },
+  { name: 'Virginia Workforce Center - Chesterfield Turner Road', address: '304 Turner Rd Suite N', city: 'Richmond', state: 'VA', source_url: 'https://virginiaworks.gov/locations/' },
+  { name: 'Virginia Workforce Center - Covington', address: '106 North Maple Avenue', city: 'Covington', state: 'VA', source_url: 'https://virginiaworks.gov/locations/' },
+  { name: 'Virginia Workforce Center - Culpeper', address: '210 E Stevens St', city: 'Culpeper', state: 'VA', source_url: 'https://virginiaworks.gov/locations/' },
+  { name: 'Virginia Workforce Center - Danville', address: '211 Nor Dan Drive Suite 1055', city: 'Danville', state: 'VA', source_url: 'https://virginiaworks.gov/locations/' },
+  { name: 'Virginia Workforce Center - Eastern Shore', address: '25036 Lankford Highway Unit 16', city: 'Onley', state: 'VA', source_url: 'https://virginiaworks.gov/locations/' },
+  { name: 'Virginia Workforce Center - Emporia', address: '321 Halifax Street', city: 'Emporia', state: 'VA', source_url: 'https://virginiaworks.gov/locations/' },
+  { name: 'Virginia Workforce Center - Fishersville', address: '1076 Jefferson Hwy', city: 'Fishersville', state: 'VA', source_url: 'https://virginiaworks.gov/locations/' },
+  { name: 'Virginia Workforce Center - Fredericksburg', address: '10304 Spotsylvania Avenue Suite 100', city: 'Fredericksburg', state: 'VA', source_url: 'https://virginiaworks.gov/locations/' },
+  { name: 'Virginia Workforce Center - Galax', address: '1117 East Stuart Drive Suite 167', city: 'Galax', state: 'VA', source_url: 'https://virginiaworks.gov/locations/' },
+  { name: 'Virginia Workforce Center - Hampton', address: '600 Butler Farm Road Suite B', city: 'Hampton', state: 'VA', source_url: 'https://virginiaworks.gov/locations/' },
+  { name: 'Virginia Career Works - Henrico Center', address: '121 Cedar Fork Road', city: 'Henrico', state: 'VA', source_url: 'https://www.reddit.com/r/rva/comments/1tlqlc5/virginia_career_works_henrico_centers_may_2026/' },
+  { name: 'SEMCA Michigan Works! American Job Center - Wyandotte', address: '2121 Biddle Ave', city: 'Wyandotte', state: 'MI', phone: '734-362-3466', source_url: 'https://www.semcamiworks.org/american-job-centers/' },
+  { name: 'SEMCA Michigan Works! American Job Center - Dearborn', address: '6451 Schaefer Rd 2nd Floor', city: 'Dearborn', state: 'MI', phone: '313-203-3366', source_url: 'https://www.semcamiworks.org/american-job-centers/' },
+  { name: 'SEMCA Michigan Works! American Job Center - Highland Park', address: '144 Manchester St', city: 'Highland Park', state: 'MI', phone: '313-826-0299', source_url: 'https://www.semcamiworks.org/american-job-centers/' },
+  { name: 'SEMCA Michigan Works! American Job Center - Monroe', address: '1531 N Telegraph Rd Ste D', city: 'Monroe', state: 'MI', phone: '734-240-7950', source_url: 'https://www.semcamiworks.org/american-job-centers/' },
+  { name: 'SEMCA Michigan Works! American Job Center - Southgate', address: '15100 Northline Rd', city: 'Southgate', state: 'MI', phone: '734-362-3466', source_url: 'https://www.semcamiworks.org/american-job-centers/' },
+  { name: 'SEMCA Michigan Works! American Job Center - Wayne', address: '35731 W Michigan Ave', city: 'Wayne', state: 'MI', phone: '734-858-4284', source_url: 'https://www.semcamiworks.org/american-job-centers/' },
+  { name: 'Michigan Works! Berrien, Cass, Van Buren - Benton Harbor Service Center', address: '499 W Main Street', city: 'Benton Harbor', state: 'MI', phone: '1-800-285-WORKS', source_url: 'https://www.miworks.org/public-information' },
+  { name: 'Michigan Works! Berrien, Cass, Van Buren - Paw Paw Service Center', address: '32849 E Red Arrow Hwy #100', city: 'Paw Paw', state: 'MI', phone: '1-800-285-WORKS', source_url: 'https://www.miworks.org/public-information' },
+  { name: 'Michigan Works! Berrien, Cass, Van Buren - Cassopolis Service Center', address: '120 N Broadway 1st Floor', city: 'Cassopolis', state: 'MI', phone: '1-800-285-WORKS', source_url: 'https://www.miworks.org/public-information' },
+];
+
 async function enrichFundedFaithLocations(limit = 100) {
   const snap = await db.collection('funded_faith_orgs').limit(Math.min(limit, 500)).get();
   const inferredUpdates = [];
@@ -1606,6 +1634,43 @@ async function fetchCareerOneStopWorkforceOrgs(limit = 3000, state = '') {
   return [...ajcs, ...boards].slice(0, limit);
 }
 
+async function fetchPublicWorkforceServiceOrgs(limit = 3000, state = '') {
+  const seeds = publicWorkforceCenterSeeds
+    .filter((seed) => !state || seed.state === state)
+    .slice(0, limit);
+  const orgs = [];
+  for (const seed of seeds) {
+    const geocoded = await geocodeUsAddress([seed.address, seed.city, seed.state]);
+    orgs.push(normalizePointOrg({
+      id: `workforce-public-${md5(`${seed.name}:${seed.address}:${seed.state}`)}`,
+      name: seed.name,
+      category: 'workforce',
+      subtype: 'American Job Center / Workforce Service Center',
+      city: seed.city,
+      state: seed.state,
+      lat: geocoded?.lat,
+      lng: geocoded?.lng,
+      source: 'Public state workforce location data',
+      source_id: seed.source_url,
+      phone: seed.phone || '',
+      data_confidence: geocoded ? 93 : 78,
+      extra: {
+        address: seed.address,
+        source_url: seed.source_url,
+        geocode_source: geocoded?.geocode_source || '',
+        geocode_match: geocoded?.geocode_match || '',
+        funding_enriched: false,
+        award_count: 0,
+        total_obligations: 0,
+        latest_award_date: '',
+        awarding_agencies: [],
+        programs: [],
+      },
+    }));
+  }
+  return orgs;
+}
+
 async function fetchWorkforceOrgs(limit = 1000, state = '') {
   const terms = [
     'workforce development',
@@ -1627,7 +1692,12 @@ async function fetchWorkforceOrgs(limit = 1000, state = '') {
 
 async function fetchWorkforceLayerOrgs(limit = 3000, state = '') {
   const fundingRecipients = await fetchWorkforceOrgs(Math.min(limit, 1000), state);
-  const serviceOrgs = await fetchCareerOneStopWorkforceOrgs(limit, state);
+  const [publicServiceOrgs, careerOneStopOrgs] = await Promise.all([
+    fetchPublicWorkforceServiceOrgs(limit, state),
+    fetchCareerOneStopWorkforceOrgs(limit, state),
+  ]);
+  const serviceById = new Map([...publicServiceOrgs, ...careerOneStopOrgs].map((org) => [org.id, org]));
+  const serviceOrgs = Array.from(serviceById.values()).slice(0, limit);
   if (!serviceOrgs.length) {
     return {
       orgs: fundingRecipients,
@@ -1646,7 +1716,15 @@ async function fetchWorkforceLayerOrgs(limit = 3000, state = '') {
     programs: recipient.programs || [],
   }]).filter(([key]) => key));
   const enriched = attachAwardAggregates(serviceOrgs, awardMap, { allowPartial: true });
-  return { orgs: enriched, fundingRecipients, source_mode: 'careeronestop_service_locations' };
+  const serviceStates = new Set(enriched.map((org) => org.state).filter(Boolean));
+  const fallbackRecipients = state
+    ? []
+    : fundingRecipients.filter((recipient) => !serviceStates.has(recipient.state));
+  return {
+    orgs: [...enriched, ...fallbackRecipients].slice(0, limit),
+    fundingRecipients,
+    source_mode: careerOneStopOrgs.length ? 'public_and_careeronestop_service_locations' : 'public_service_locations',
+  };
 }
 
 const faithTerms = ['church', 'ministries', 'ministry', 'mission', 'faith', 'baptist', 'methodist', 'catholic', 'synagogue', 'mosque', 'temple'];
