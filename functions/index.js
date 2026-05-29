@@ -607,6 +607,39 @@ function decoratePhaForMap(pha, recentAwards = []) {
   };
 }
 
+async function recomputeHudPhaScores() {
+  const [phaSnap, awardSnap] = await Promise.all([
+    db.collection('hud_phas').limit(5000).get(),
+    db.collection('hud_pha_awards').orderBy('start_date', 'desc').limit(2000).get(),
+  ]);
+  const awards = awardSnap.docs.map((doc) => doc.data());
+  let batch = db.batch();
+  let writes = 0;
+  for (const doc of phaSnap.docs) {
+    const scored = decoratePhaForMap(doc.data(), awards);
+    batch.set(doc.ref, {
+      latest_award_date: scored.latest_award_date || '',
+      latest_award_end_date: scored.latest_award_end_date || '',
+      latest_award_amount: Number(scored.latest_award_amount || 0),
+      latest_award_program: scored.latest_award_program || '',
+      days_since_latest_award: Number(scored.days_since_latest_award || 99999),
+      spend_window_days: Number(scored.spend_window_days || 0),
+      recency_score: Number(scored.recency_score || 0),
+      flow_score: Number(scored.flow_score || 0),
+      flow_bucket: scored.flow_bucket || 'dormant',
+      scored_at: new Date().toISOString(),
+    }, { merge: true });
+    writes++;
+    if (writes >= 450) {
+      await batch.commit();
+      batch = db.batch();
+      writes = 0;
+    }
+  }
+  if (writes) await batch.commit();
+  return { phas: phaSnap.size, awards: awards.length };
+}
+
 async function fetchHudPhaRoster() {
   const data = await fetchJson('https://opendata.arcgis.com/api/v3/datasets/3d6ef39026b94eb59ddb7ce28eb0b692_0/downloads/data?format=geojson&spatialRefId=4326&where=1%3D1', {
     signal: AbortSignal.timeout(30000),
@@ -1554,7 +1587,10 @@ app.get('/api/hud-pha-flows', cache(300000, async (req) => {
     db.collection('hud_pha_awards').orderBy('start_date', 'desc').limit(250).get(),
   ]);
   const awards = awardSnap.docs.map((doc) => doc.data()).filter((award) => !state || award.recipient_state === state);
-  const phas = phaSnap.docs.map((doc) => decoratePhaForMap(doc.data(), awards));
+  const phas = phaSnap.docs.map((doc) => {
+    const pha = doc.data();
+    return typeof pha.flow_score === 'number' && pha.flow_bucket ? pha : decoratePhaForMap(pha, awards);
+  });
   const stateTotals = {};
   for (const pha of phas) {
     const bucket = stateTotals[pha.state] || { state: pha.state, total_amount: 0, pha_count: 0, award_count: 0, ...centroidForState(pha.state) };
@@ -1583,7 +1619,8 @@ app.all('/api/hud-pha-flows/update', async (req, res) => {
     const pages = Math.min(Number(req.query.pages || req.body?.pages || 3), 10);
     const awards = await searchHudPhaAwards(start, end, limit, pages);
     await persistHudAwards(awards);
-    res.json({ inserted_or_updated: awards.length, start, end, timestamp: new Date().toISOString() });
+    const scored = await recomputeHudPhaScores();
+    res.json({ inserted_or_updated: awards.length, scored, start, end, timestamp: new Date().toISOString() });
   } catch (err) {
     console.error('[AutoNateAI Intel Functions] HUD PHA update failed', err);
     res.status(500).json({ error: 'HUD PHA update failed', detail: err instanceof Error ? err.message : 'Unknown error' });
@@ -1604,10 +1641,21 @@ app.all('/api/hud-pha-flows/update-roster', async (_req, res) => {
   try {
     const roster = await fetchHudPhaRoster();
     await persistHudPhaRoster(roster);
-    res.json({ inserted_or_updated: roster.length, timestamp: new Date().toISOString() });
+    const scored = await recomputeHudPhaScores();
+    res.json({ inserted_or_updated: roster.length, scored, timestamp: new Date().toISOString() });
   } catch (err) {
     console.error('[AutoNateAI Intel Functions] HUD PHA roster update failed', err);
     res.status(500).json({ error: 'HUD PHA roster update failed', detail: err instanceof Error ? err.message : 'Unknown error' });
+  }
+});
+
+app.all('/api/hud-pha-flows/recompute', async (_req, res) => {
+  try {
+    const scored = await recomputeHudPhaScores();
+    res.json({ scored, timestamp: new Date().toISOString() });
+  } catch (err) {
+    console.error('[AutoNateAI Intel Functions] HUD PHA score recompute failed', err);
+    res.status(500).json({ error: 'HUD PHA score recompute failed', detail: err instanceof Error ? err.message : 'Unknown error' });
   }
 });
 

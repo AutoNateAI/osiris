@@ -46,6 +46,7 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
   const popupRef = useRef<maplibregl.Popup | null>(null);
   const [mapReady, setMapReady] = useState(false);
   const prevStyleRef = useRef(mapStyle);
+  const hudFitRef = useRef(false);
 
   // Create aircraft icon on canvas (for WebGL symbol layer)
   const createIcon = useCallback((map: maplibregl.Map, id: string, color: string, size: number) => {
@@ -905,8 +906,29 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
 
   useEffect(() => {
     if (!mapReady) return;
-    setGeo('hud-pha-flows', activeLayers.hud_pha_flows && data.hud_phas ? data.hud_phas.map((p: any) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [p.lng, p.lat] }, properties: { ...p, type: 'hud_pha' } })) : []);
+    const phas = Array.isArray(data.hud_phas) ? data.hud_phas : [];
+    setGeo('hud-pha-flows', activeLayers.hud_pha_flows ? phas
+      .filter((p: any) => Number.isFinite(Number(p.lng)) && Number.isFinite(Number(p.lat)))
+      .map((p: any) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [Number(p.lng), Number(p.lat)] }, properties: { ...p, type: 'hud_pha' } })) : []);
   }, [mapReady, data.hud_phas, activeLayers.hud_pha_flows, setGeo]);
+
+  useEffect(() => {
+    if (!mapReady) return;
+    if (!activeLayers.hud_pha_flows) {
+      hudFitRef.current = false;
+      return;
+    }
+    if (hudFitRef.current || !Array.isArray(data.hud_phas) || data.hud_phas.length === 0) return;
+    const map = mapRef.current;
+    if (!map) return;
+    const points = data.hud_phas
+      .map((p: any) => [Number(p.lng), Number(p.lat)] as [number, number])
+      .filter(([lng, lat]: [number, number]) => Number.isFinite(lng) && Number.isFinite(lat));
+    if (!points.length) return;
+    const bounds = points.reduce((b, coord) => b.extend(coord), new maplibregl.LngLatBounds(points[0], points[0]));
+    map.fitBounds(bounds, { padding: 80, maxZoom: 5.5, duration: 900 });
+    hudFitRef.current = true;
+  }, [mapReady, activeLayers.hud_pha_flows, data.hud_phas]);
 
   useEffect(() => {
     if (!mapReady) return;
