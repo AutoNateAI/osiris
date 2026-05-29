@@ -736,6 +736,31 @@ async function geocodeOrganizationByName(name) {
   return null;
 }
 
+async function geocodeUsAddress(parts = []) {
+  const address = parts.filter(Boolean).join(' ');
+  if (!address) return null;
+  try {
+    const params = new URLSearchParams({
+      address,
+      benchmark: 'Public_AR_Current',
+      format: 'json',
+    });
+    const data = await fetchJson(`https://geocoding.geo.census.gov/geocoder/locations/onelineaddress?${params.toString()}`, { signal: AbortSignal.timeout(10000) });
+    const hit = data.result?.addressMatches?.[0];
+    const coords = hit?.coordinates;
+    if (!coords || !Number.isFinite(Number(coords.x)) || !Number.isFinite(Number(coords.y))) return null;
+    return {
+      lat: Number(coords.y),
+      lng: Number(coords.x),
+      geocode_source: 'US Census Geocoder',
+      geocode_match: hit.matchedAddress || '',
+    };
+  } catch (err) {
+    console.warn('[AutoNateAI Intel Functions] Census geocode failed', address, err instanceof Error ? err.message : err);
+    return null;
+  }
+}
+
 async function enrichFundedFaithLocations(limit = 100) {
   const snap = await db.collection('funded_faith_orgs').limit(Math.min(limit, 500)).get();
   const inferredUpdates = [];
@@ -1272,6 +1297,9 @@ async function fetchHospitalOrgs(limit = 1000, state = '') {
     for (const row of results) {
       const code = String(row.state || '').toUpperCase();
       const fallback = fallbackCoordsForState(code);
+      const geocoded = state && stateCodes.has(state)
+        ? await geocodeUsAddress([row.address, row.citytown, code, row.zip_code])
+        : null;
       records.push(normalizePointOrg({
         id: `health-cms-${row.facility_id}`,
         name: row.facility_name,
@@ -1280,12 +1308,12 @@ async function fetchHospitalOrgs(limit = 1000, state = '') {
         city: row.citytown,
         state: code,
         county: row.countyparish,
-        lat: row.citytown === fallback.city.toUpperCase() ? fallback.lat : undefined,
-        lng: row.citytown === fallback.city.toUpperCase() ? fallback.lng : undefined,
+        lat: geocoded?.lat ?? (row.citytown === fallback.city.toUpperCase() ? fallback.lat : undefined),
+        lng: geocoded?.lng ?? (row.citytown === fallback.city.toUpperCase() ? fallback.lng : undefined),
         source: 'CMS Hospital General Information',
         source_id: String(row.facility_id || ''),
         phone: row.telephone_number,
-        data_confidence: 72,
+        data_confidence: geocoded ? 92 : 72,
         extra: {
           facility_type: row.hospital_type || 'Hospital',
           hospital_ownership: row.hospital_ownership || '',
@@ -1293,6 +1321,8 @@ async function fetchHospitalOrgs(limit = 1000, state = '') {
           hospital_overall_rating: row.hospital_overall_rating || '',
           address: row.address || '',
           cms_facility_id: row.facility_id || '',
+          geocode_source: geocoded?.geocode_source || '',
+          geocode_match: geocoded?.geocode_match || '',
           award_match_names: /spectrum health/i.test(row.facility_name || '') ? ['COREWELL HEALTH', 'SPECTRUM HEALTH'] : [],
         },
       }));
@@ -1446,10 +1476,19 @@ async function searchUsaspendingCapability({ category, keyword, agencyName = '',
 }
 
 async function fetchWorkforceOrgs(limit = 1000, state = '') {
-  const terms = ['workforce development', 'WIOA', 'American Job Center', 'apprenticeship'];
+  const terms = [
+    'workforce development',
+    'WIOA',
+    'American Job Center',
+    'apprenticeship',
+    'employment services',
+    'job training',
+    'career center',
+    'labor workforce',
+  ];
   const all = [];
   for (const term of terms) {
-    all.push(...await searchUsaspendingCapability({ category: 'workforce', keyword: term, agencyName: 'Department of Labor', limit: Math.ceil(limit / terms.length), maxPages: 4, state }));
+    all.push(...await searchUsaspendingCapability({ category: 'workforce', keyword: term, agencyName: 'Department of Labor', limit: Math.ceil(limit / terms.length), maxPages: 8, state }));
   }
   const byId = new Map(all.map((record) => [record.id, { ...record, subtype: record.subtype || 'Workforce funded recipient' }]));
   return Array.from(byId.values()).slice(0, limit);
