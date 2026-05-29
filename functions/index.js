@@ -806,7 +806,23 @@ const publicWorkforceCenterSeeds = [
   { name: 'Michigan Works! Berrien, Cass, Van Buren - Benton Harbor Service Center', address: '499 W Main Street', city: 'Benton Harbor', state: 'MI', phone: '1-800-285-WORKS', source_url: 'https://www.miworks.org/public-information' },
   { name: 'Michigan Works! Berrien, Cass, Van Buren - Paw Paw Service Center', address: '32849 E Red Arrow Hwy #100', city: 'Paw Paw', state: 'MI', phone: '1-800-285-WORKS', source_url: 'https://www.miworks.org/public-information' },
   { name: 'Michigan Works! Berrien, Cass, Van Buren - Cassopolis Service Center', address: '120 N Broadway 1st Floor', city: 'Cassopolis', state: 'MI', phone: '1-800-285-WORKS', source_url: 'https://www.miworks.org/public-information' },
+  { name: 'West Michigan Works! Service Center - Grand Rapids Franklin', address: '121 Franklin St SE', city: 'Grand Rapids', state: 'MI', source_url: 'https://www.westmiworks.org/locations/' },
+  { name: 'West Michigan Works! Service Center - Grand Rapids Leonard', address: '215 Straight Ave NW', city: 'Grand Rapids', state: 'MI', source_url: 'https://www.westmiworks.org/locations/' },
 ];
+
+const workforceSubrecipientLocationSeeds = {
+  'area community services employment and training council': { city: 'Grand Rapids', state: 'MI', lat: 42.9634, lng: -85.6681, source: 'known Michigan Works regional operator' },
+  'area community services employment training council': { city: 'Grand Rapids', state: 'MI', lat: 42.9634, lng: -85.6681, source: 'known Michigan Works regional operator' },
+  'west michigan works': { city: 'Grand Rapids', state: 'MI', lat: 42.9634, lng: -85.6681, source: 'known Michigan Works regional operator' },
+  'w e upjohn unemployment trustee corporation': { city: 'Kalamazoo', state: 'MI', lat: 42.2917, lng: -85.5872, source: 'known Michigan workforce intermediary' },
+  'w. e. upjohn unemployment trustee corporation': { city: 'Kalamazoo', state: 'MI', lat: 42.2917, lng: -85.5872, source: 'known Michigan workforce intermediary' },
+  'w e upjohn unemployment trustee': { city: 'Kalamazoo', state: 'MI', lat: 42.2917, lng: -85.5872, source: 'known Michigan workforce intermediary' },
+  'detroit employment solutions corporation': { city: 'Detroit', state: 'MI', lat: 42.3314, lng: -83.0458, source: 'known local workforce board' },
+  'gst michigan works': { city: 'Flint', state: 'MI', lat: 43.0125, lng: -83.6875, source: 'known Michigan Works regional operator' },
+  'southeast michigan community alliance inc': { city: 'Taylor', state: 'MI', lat: 42.2409, lng: -83.2697, source: 'known Michigan Works regional operator' },
+  'southeast michigan community alliance, inc': { city: 'Taylor', state: 'MI', lat: 42.2409, lng: -83.2697, source: 'known Michigan Works regional operator' },
+  'county of macomb': { city: 'Mount Clemens', state: 'MI', lat: 42.5973, lng: -82.8780, source: 'county seat' },
+};
 
 async function enrichFundedFaithLocations(limit = 100) {
   const snap = await db.collection('funded_faith_orgs').limit(Math.min(limit, 500)).get();
@@ -1671,6 +1687,92 @@ async function fetchPublicWorkforceServiceOrgs(limit = 3000, state = '') {
   return orgs;
 }
 
+async function fetchWorkforceSubrecipientOrgs(limit = 1000, state = '') {
+  if (!state || !stateCodes.has(state)) return [];
+  const filters = {
+    award_type_codes: ['02', '03', '04', '05'],
+    time_period: [{ start_date: '2010-01-01', end_date: new Date().toISOString().slice(0, 10) }],
+    agencies: [{ type: 'funding', tier: 'toptier', name: 'Department of Labor' }],
+    recipient_locations: [{ country: 'USA', state }],
+  };
+  const grouped = await fetchJson('https://api.usaspending.gov/api/v2/search/spending_by_subaward_grouped/', {
+    method: 'POST',
+    signal: AbortSignal.timeout(25000),
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ filters, limit: 10, page: 1, sort: 'subaward_obligation', order: 'desc' }),
+  });
+  const subrecipientMap = new Map();
+  for (const award of grouped.results || []) {
+    const awardId = award.award_generated_internal_id;
+    if (!awardId) continue;
+    for (let page = 1; page <= 3; page++) {
+      const data = await fetchJson('https://api.usaspending.gov/api/v2/subawards/', {
+        method: 'POST',
+        signal: AbortSignal.timeout(25000),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ award_id: awardId, limit: 100, page, sort: 'amount', order: 'desc' }),
+      });
+      for (const row of data.results || []) {
+        const name = row.recipient_name || '';
+        if (!name) continue;
+        const key = normalizeOrgName(name);
+        if (!key) continue;
+        const current = subrecipientMap.get(key) || {
+          recipient_name: name,
+          award_count: 0,
+          total_obligations: 0,
+          latest_award_date: '',
+          programs: [],
+          parent_awards: [],
+        };
+        current.award_count += 1;
+        current.total_obligations += Number(row.amount || 0);
+        if ((row.action_date || '') > (current.latest_award_date || '')) current.latest_award_date = row.action_date;
+        current.programs = [...new Set([...current.programs, row.description].filter(Boolean))].slice(0, 12);
+        current.parent_awards = [...new Set([...current.parent_awards, award.award_id].filter(Boolean))].slice(0, 12);
+        subrecipientMap.set(key, current);
+      }
+      if (!data.page_metadata?.hasNext) break;
+    }
+  }
+
+  const records = [];
+  for (const [key, sub] of subrecipientMap.entries()) {
+    const seeded = workforceSubrecipientLocationSeeds[key];
+    const geocoded = seeded || null;
+    if (state && geocoded?.state && geocoded.state !== state) continue;
+    const fallback = capitalForState(state);
+    records.push(normalizePointOrg({
+      id: `workforce-subrecipient-${md5(`${sub.recipient_name}:${state}`)}`,
+      name: sub.recipient_name,
+      category: 'workforce',
+      subtype: 'DOL Workforce Subrecipient',
+      city: geocoded?.city || fallback.city,
+      state,
+      lat: geocoded?.lat,
+      lng: geocoded?.lng,
+      source: 'USAspending subaward data',
+      source_id: sub.parent_awards.join(','),
+      data_confidence: seeded ? 88 : geocoded ? 76 : 52,
+      extra: {
+        award_count: sub.award_count,
+        total_obligations: Math.round(sub.total_obligations * 100) / 100,
+        latest_award_date: sub.latest_award_date,
+        awarding_agencies: ['Department of Labor'],
+        programs: sub.programs,
+        parent_awards: sub.parent_awards,
+        funding_enriched: true,
+        subrecipient_since: '2010-01-01',
+        geocode_source: seeded?.source || geocoded?.geocode_source || 'state capital fallback',
+        geocode_match: geocoded?.geocode_display_name || '',
+      },
+    }));
+  }
+  return records
+    .sort((a, b) => Number(b.total_obligations || 0) - Number(a.total_obligations || 0))
+    .slice(0, limit);
+}
+
 async function fetchWorkforceOrgs(limit = 1000, state = '') {
   const terms = [
     'workforce development',
@@ -1692,11 +1794,12 @@ async function fetchWorkforceOrgs(limit = 1000, state = '') {
 
 async function fetchWorkforceLayerOrgs(limit = 3000, state = '') {
   const fundingRecipients = await fetchWorkforceOrgs(Math.min(limit, 1000), state);
-  const [publicServiceOrgs, careerOneStopOrgs] = await Promise.all([
+  const [publicServiceOrgs, careerOneStopOrgs, subrecipientOrgs] = await Promise.all([
     fetchPublicWorkforceServiceOrgs(limit, state),
     fetchCareerOneStopWorkforceOrgs(limit, state),
+    state ? fetchWorkforceSubrecipientOrgs(limit, state) : Promise.resolve([]),
   ]);
-  const serviceById = new Map([...publicServiceOrgs, ...careerOneStopOrgs].map((org) => [org.id, org]));
+  const serviceById = new Map([...publicServiceOrgs, ...careerOneStopOrgs, ...subrecipientOrgs].map((org) => [org.id, org]));
   const serviceOrgs = Array.from(serviceById.values()).slice(0, limit);
   if (!serviceOrgs.length) {
     return {
@@ -1723,7 +1826,9 @@ async function fetchWorkforceLayerOrgs(limit = 3000, state = '') {
   return {
     orgs: [...enriched, ...fallbackRecipients].slice(0, limit),
     fundingRecipients,
-    source_mode: careerOneStopOrgs.length ? 'public_and_careeronestop_service_locations' : 'public_service_locations',
+    source_mode: subrecipientOrgs.length
+      ? 'public_service_locations_and_usaspending_subrecipients'
+      : careerOneStopOrgs.length ? 'public_and_careeronestop_service_locations' : 'public_service_locations',
   };
 }
 
