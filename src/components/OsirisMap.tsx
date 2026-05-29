@@ -284,6 +284,7 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
         'line-color': ['match', ['get','party'], 'Democrat', '#2F80ED', 'Republican', '#EB5757', '#FFFFFF'],
         'line-width': ['interpolate',['linear'],['zoom'], 1,0.7, 5,1.5, 9,2.5],
         'line-opacity': 0.34,
+        'line-dasharray': [2, 2],
       }});
 
       // Satellites
@@ -908,25 +909,53 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
 
   useEffect(() => {
     if (!mapReady) return;
-    if (!activeLayers.power_edges || !data.federal_power?.length || !data.hud_state_totals?.length) {
+    if (!activeLayers.power_edges || !data.federal_power?.length) {
       setGeo('power-edges', []);
       return;
     }
-    const stateTotals = new Map((data.hud_state_totals || []).map((s: any) => [s.state, s]));
-    const features = (data.federal_power || [])
-      .filter((p: any) => p.state && stateTotals.has(p.state) && p.branch === 'congress')
-      .slice(0, 650)
-      .map((p: any, index: number) => {
-        const target: any = stateTotals.get(p.state);
-        const offset = (index % 9) * 0.08;
-        return {
-          type: 'Feature',
-          geometry: { type: 'LineString', coordinates: [[(p.lng || -77.0369) + offset, (p.lat || 38.9072) + offset], [target.lng, target.lat]] },
-          properties: { party: p.party, name: p.name, state: p.state },
-        };
-      });
+    const dc: [number, number] = [-77.0369, 38.9072];
+    const dist = (a: [number, number], b: [number, number]) => {
+      const dx = a[0] - b[0];
+      const dy = a[1] - b[1];
+      return dx * dx + dy * dy;
+    };
+    const makeLoop = (party: string) => {
+      const seen = new Set<string>();
+      const points = (data.federal_power || [])
+        .filter((p: any) => p.branch === 'congress' && p.party === party && typeof p.lng === 'number' && typeof p.lat === 'number')
+        .filter((p: any) => {
+          const key = `${p.state}:${p.district ?? p.chamber ?? p.name}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        })
+        .map((p: any) => ({ p, coord: [p.lng, p.lat] as [number, number] }));
+      const coords: [number, number][] = [dc];
+      let current = dc;
+      while (points.length) {
+        let bestIndex = 0;
+        let bestDistance = Infinity;
+        for (let i = 0; i < points.length; i++) {
+          const d = dist(current, points[i].coord);
+          if (d < bestDistance) {
+            bestDistance = d;
+            bestIndex = i;
+          }
+        }
+        const [next] = points.splice(bestIndex, 1);
+        coords.push(next.coord);
+        current = next.coord;
+      }
+      coords.push(dc);
+      return {
+        type: 'Feature',
+        geometry: { type: 'LineString', coordinates: coords },
+        properties: { party, name: `${party} power loop`, point_count: coords.length - 2 },
+      };
+    };
+    const features = [makeLoop('Democrat'), makeLoop('Republican')].filter((feature: any) => feature.geometry.coordinates.length > 2);
     setGeo('power-edges', features);
-  }, [mapReady, data.federal_power, data.hud_state_totals, activeLayers.power_edges, setGeo]);
+  }, [mapReady, data.federal_power, activeLayers.power_edges, setGeo]);
 
   useEffect(() => {
     if (!mapReady) return;
@@ -1020,6 +1049,24 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
     // Sweep layers always visible when data is present (controlled by useEffect)
     setVis(['sweep-connections','sweep-pulse-ring','sweep-device-glow','sweep-device-dots','sweep-device-labels'], true);
   }, [mapReady, activeLayers, setVis]);
+
+  useEffect(() => {
+    if (!mapReady || !activeLayers.power_edges) return;
+    const map = mapRef.current;
+    if (!map?.getLayer('power-edge-lines')) return;
+    let frame = 0;
+    let raf = 0;
+    const patterns = [[0, 4, 3], [0.5, 4, 2.5], [1, 4, 2], [1.5, 4, 1.5], [2, 4, 1], [2.5, 4, 0.5], [3, 4, 0], [0, 0.5, 3, 3.5]];
+    const animate = () => {
+      if (map.getLayer('power-edge-lines')) {
+        map.setPaintProperty('power-edge-lines', 'line-dasharray', patterns[frame % patterns.length]);
+      }
+      frame++;
+      raf = requestAnimationFrame(animate);
+    };
+    raf = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(raf);
+  }, [mapReady, activeLayers.power_edges]);
 
   // IP Sweep visualization
   useEffect(() => {
