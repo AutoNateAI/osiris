@@ -10,7 +10,7 @@ import { fetchRomaniaCameras } from './romania';
 import { fetchAustraliaCameras } from './australia';
 
 /**
- * OSIRIS — Worldwide CCTV Camera API v2
+ * AutoNateAI Intel — Worldwide CCTV Camera API v2
  * Viewport-aware: pass ?region=xx to load cameras for specific regions
  * Supports: uk, us-east, us-west, us-central, canada, europe, asia
  * Or pass ?lat=x&lng=y&radius=5 for proximity-based loading

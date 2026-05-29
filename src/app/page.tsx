@@ -248,7 +248,7 @@ export default function Dashboard() {
           setLocationLabel(label);
           lastGeocodedPos.current = coords;
         }
-      } catch (e) { console.warn('[OSIRIS] Suppressed error:', e instanceof Error ? e.message : e); }
+      } catch (e) { console.warn('[AutoNateAI Intel] Suppressed error:', e instanceof Error ? e.message : e); }
     }, 3000); // 3s debounce (was 1.5s)
   }, []);
 
@@ -258,7 +258,7 @@ export default function Dashboard() {
     try {
       const res = await fetch(`/api/region-dossier?lat=${coords.lat}&lng=${coords.lng}`);
       if (res.ok) setRegionDossier(await res.json());
-    } catch (e) { console.warn('[OSIRIS] Suppressed error:', e instanceof Error ? e.message : e); } finally { setDossierLoading(false); }
+    } catch (e) { console.warn('[AutoNateAI Intel] Suppressed error:', e instanceof Error ? e.message : e); } finally { setDossierLoading(false); }
   }, []);
 
   // Entity click handler (hoisted from JSX to comply with Rules of Hooks — Fixes #113)
@@ -284,7 +284,7 @@ export default function Dashboard() {
         setBackendStatus('connected');
       }
     } catch (e) {
-      console.warn('[OSIRIS] Suppressed error:', e instanceof Error ? e.message : e);
+      console.warn('[AutoNateAI Intel] Suppressed error:', e instanceof Error ? e.message : e);
       setBackendStatus('error');
     }
   }, []);
@@ -301,7 +301,7 @@ export default function Dashboard() {
       try {
         const r = await fetch('/api/space-weather');
         if (r.ok) setSpaceWeather(await r.json());
-      } catch (e) { console.warn('[OSIRIS] Suppressed error:', e instanceof Error ? e.message : e); }
+      } catch (e) { console.warn('[AutoNateAI Intel] Suppressed error:', e instanceof Error ? e.message : e); }
     }, 5000);
 
     // Polling — OPTIMIZED intervals to minimize edge requests
@@ -507,15 +507,15 @@ export default function Dashboard() {
               />
             </div>
 
-            {/* ── OSIRIS title — letter-by-letter stagger ── */}
+            {/* ── AutoNateAI title — letter-by-letter stagger ── */}
             <div className="flex items-center gap-[2px] mb-3 z-[2]">
-              {'OSIRIS'.split('').map((letter, i) => (
+              {'AUTONATEAI'.split('').map((letter, i) => (
                 <motion.span
                   key={i}
                   initial={{ opacity: 0, y: 20, filter: 'blur(8px)' }}
                   animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
-                  transition={{ delay: 0.5 + i * 0.08, duration: 0.5, ease: 'easeOut' }}
-                  className="text-4xl md:text-5xl font-bold tracking-[0.5em] font-mono"
+                  transition={{ delay: 0.5 + i * 0.055, duration: 0.5, ease: 'easeOut' }}
+                  className="text-3xl md:text-5xl font-bold tracking-[0.24em] md:tracking-[0.32em] font-mono"
                   style={{ color: 'var(--text-heading)', textShadow: '0 0 30px rgba(212,175,55,0.2)' }}
                 >
                   {letter}
@@ -688,13 +688,13 @@ export default function Dashboard() {
         <div className="hidden md:block absolute top-1/2 left-[52px] w-[200px] h-[1px] bg-gradient-to-r from-[var(--gold-primary)]/40 via-[var(--gold-primary)]/15 to-transparent" />
         <div className="flex flex-col">
           <div className="flex items-center gap-2">
-            <h1 className="text-base md:text-xl font-bold tracking-[0.4em] md:tracking-[0.5em] text-[var(--text-heading)] font-mono">OSIRIS</h1>
+            <h1 className="text-base md:text-xl font-bold tracking-[0.16em] md:tracking-[0.22em] text-[var(--text-heading)] font-mono">AUTONATEAI</h1>
             <span className="hidden md:inline-flex items-center gap-1 px-1.5 py-[1px] rounded-sm border border-[var(--cyan-primary)]/40 bg-[var(--cyan-primary)]/10 text-[7px] font-mono font-bold tracking-[0.15em] text-[var(--cyan-primary)] uppercase" style={{ lineHeight: '1.4' }}>
               <Globe className="w-2.5 h-2.5" />
               OPEN SOURCE
             </span>
           </div>
-          <span className="text-[8px] md:text-[9px] text-[var(--gold-primary)] font-mono tracking-[0.2em] md:tracking-[0.3em] opacity-80">GLOBAL INTELLIGENCE COMMAND</span>
+          <span className="text-[8px] md:text-[9px] text-[var(--gold-primary)] font-mono tracking-[0.16em] md:tracking-[0.24em] opacity-80">INTELLIGENCE COMMAND</span>
         </div>
       </motion.div>
 
@@ -911,7 +911,7 @@ export default function Dashboard() {
                 <div className="px-3 pb-3">
                   <div className="flex items-center justify-between mb-2">
                     <span className="hud-text text-[9px] text-[var(--text-primary)]">
-                      {mobilePanel === 'layers' ? 'LAYERS & STATS' : mobilePanel === 'markets' ? 'MARKETS & INTEL' : mobilePanel === 'intel' ? 'INTEL FEED' : mobilePanel === 'recon' ? 'OSIRIS RECON' : 'SEARCH'}
+                      {mobilePanel === 'layers' ? 'LAYERS & STATS' : mobilePanel === 'markets' ? 'MARKETS & INTEL' : mobilePanel === 'intel' ? 'INTEL FEED' : mobilePanel === 'recon' ? 'AUTONATEAI RECON' : 'SEARCH'}
                     </span>
                     <button onClick={() => setMobilePanel(null)} className="text-[var(--text-muted)] p-1"><X className="w-4 h-4" /></button>
                   </div>

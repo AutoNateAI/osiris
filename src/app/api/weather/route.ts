@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server';
 import { stealthFetch } from '@/lib/stealthFetch';
 
 /**
- * OSIRIS — Severe Weather & Anomalies API
+ * AutoNateAI Intel — Severe Weather & Anomalies API
  * Fetches active natural events from NASA EONET (Earth Observatory Natural Event Tracker)
  * Tracks: Severe Storms (Hurricanes/Typhoons), Volcanoes, Sea Ice
  */

@@ -2,7 +2,7 @@
 @import "tailwindcss";
 
 /* ═══════════════════════════════════════════════════════════════
-   OSIRIS — Global Intelligence Platform Design System
+   AutoNateAI Intel — Global Intelligence Platform Design System
    Egyptian Mythology × Dark Ops × Glassmorphism
    ═══════════════════════════════════════════════════════════════ */
 
@@ -119,7 +119,7 @@ html, body {
   border-radius: 10px;
 }
 
-/* ── Osiris Gold Glow ── */
+/* ── AutoNateAI Gold Glow ── */
 .osiris-glow {
   box-shadow:
     0 0 20px rgba(212, 175, 55, 0.12),

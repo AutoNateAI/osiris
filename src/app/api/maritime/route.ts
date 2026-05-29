@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import WebSocket from 'ws';
 
 /**
- * OSIRIS — Maritime Intelligence
+ * AutoNateAI Intel — Maritime Intelligence
  * Real-time AIS vessel tracking via aisstream.io + Static global ports.
  */
 

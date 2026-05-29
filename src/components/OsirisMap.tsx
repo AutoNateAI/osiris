@@ -1050,7 +1050,7 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
             'fog-color': '#04040A',
             'fog-ground-blend': 0.9,
           });
-        } catch (e) { console.warn('[OSIRIS] Suppressed error:', e instanceof Error ? e.message : e); }
+        } catch (e) { console.warn('[AutoNateAI Intel] Suppressed error:', e instanceof Error ? e.message : e); }
       } else {
         map.easeTo({ pitch: 0, duration: 800 });
       }

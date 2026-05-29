@@ -1,5 +1,5 @@
-# Osiris Global Intelligence Platform
-# https://osirisai.live
+# AutoNateAI Intel
+# https://intel.autonateai.com
 
 User-agent: *
 Allow: /
@@ -11,7 +11,7 @@ Disallow: /api/osint/*
 Allow: /api/health
 
 # Sitemap
-Sitemap: https://osirisai.live/sitemap.xml
+Sitemap: https://intel.autonateai.com/sitemap.xml
 
 # Crawl-delay for respectful indexing
 Crawl-delay: 10

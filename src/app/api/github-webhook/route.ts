@@ -26,7 +26,7 @@ export async function POST(request: Request) {
 
         const payload = JSON.parse(payloadText);
 
-        // Forward the payload to the local OSIRIS Discord Bot running on Port 3005
+        // Forward the payload to the local AutoNateAI Intel Discord Bot running on Port 3005
         // Using the Tailscale internal IP of the Discord bot server
         const response = await fetch('http://100.68.100.15:3005/github/webhook', {
             method: 'POST',

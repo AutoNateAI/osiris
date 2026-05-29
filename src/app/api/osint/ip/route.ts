@@ -48,7 +48,7 @@ export async function GET(req: Request) {
           };
         }
       }
-    } catch (e) { console.warn('[OSIRIS] Suppressed error:', e instanceof Error ? e.message : e); }
+    } catch (e) { console.warn('[AutoNateAI Intel] Suppressed error:', e instanceof Error ? e.message : e); }
 
     // 2. AbuseIPDB-style check via ip-api proxy flag
     results.reputation = {

@@ -466,7 +466,7 @@ export async function GET(req: Request) {
       },
     });
   } catch (err) {
-    console.error('[OSIRIS] Sweep error:', err instanceof Error ? err.message : err);
+    console.error('[AutoNateAI Intel] Sweep error:', err instanceof Error ? err.message : err);
     return NextResponse.json({ error: 'Sweep failed' }, { status: 500 });
   }
 }

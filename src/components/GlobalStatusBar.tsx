@@ -36,7 +36,7 @@ export default function GlobalStatusBar() {
         if (cyberRes.status === 'fulfilled' && cyberRes.value.ok) {
           setCyber(await cyberRes.value.json());
         }
-      } catch (e) { console.warn('[OSIRIS] Suppressed error:', e instanceof Error ? e.message : e); }
+      } catch (e) { console.warn('[AutoNateAI Intel] Suppressed error:', e instanceof Error ? e.message : e); }
     };
     fetchData();
     const iv = setInterval(fetchData, 1800000); // 30 min (was 5 min)
