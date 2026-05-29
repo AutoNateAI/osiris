@@ -167,7 +167,7 @@ export default function Dashboard() {
 
   const [backendStatus, setBackendStatus] = useState<'connecting' | 'connected' | 'error'>('connecting');
   const [mapView, setMapView] = useState({ zoom: 2.5, latitude: 20 });
-  const [sbirYearRange, setSbirYearRange] = useState({ start: 2010, end: 2030 });
+  const [sbirYearRange, setSbirYearRange] = useState({ start: 2025, end: 2030 });
   const [flyToLocation, setFlyToLocation] = useState<{ lat: number; lng: number; ts: number } | null>(null);
   const [globalStats, setGlobalStats] = useState<any>(null);
   const mouseCoordsRef = useRef<{ lat: number; lng: number } | null>(null);

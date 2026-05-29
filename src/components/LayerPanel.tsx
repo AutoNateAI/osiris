@@ -20,6 +20,17 @@ interface LayerPanelProps {
 
 const LAYER_GROUPS = [
   {
+    label: 'USA INFRA',
+    icon: Landmark,
+    color: '#F2C94C',
+    layers: [
+      { key: 'hud_pha_flows', label: 'HUD PHA Flows', icon: Landmark, color: '#00AEEF', dataKey: 'hud_phas,hud_pha_awards,hud_state_totals' },
+      { key: 'sbir_recipients', label: 'SBIR/STTR Recipients', icon: BriefcaseBusiness, color: '#F2C94C', dataKey: 'sbir_recipients' },
+      { key: 'federal_power', label: 'Federal Power', icon: Users, color: '#FFFFFF', dataKey: 'federal_power' },
+      { key: 'power_edges', label: 'Power Loop Edges', icon: Radio, color: '#B388FF', dataKey: '' },
+    ],
+  },
+  {
     label: 'AVIATION',
     icon: Plane,
     color: '#00E5FF',
@@ -64,10 +75,6 @@ const LAYER_GROUPS = [
     color: '#FF3D3D',
     layers: [
       { key: 'infrastructure', label: 'Nuclear Facilities', icon: Radiation, color: '#76FF03', dataKey: 'infrastructure' },
-      { key: 'hud_pha_flows', label: 'HUD PHA Flows', icon: Landmark, color: '#00AEEF', dataKey: 'hud_phas,hud_pha_awards,hud_state_totals' },
-      { key: 'sbir_recipients', label: 'SBIR/STTR Recipients', icon: BriefcaseBusiness, color: '#F2C94C', dataKey: 'sbir_recipients' },
-      { key: 'federal_power', label: 'Federal Power', icon: Users, color: '#FFFFFF', dataKey: 'federal_power' },
-      { key: 'power_edges', label: 'Power Loop Edges', icon: Radio, color: '#B388FF', dataKey: '' },
       { key: 'global_incidents', label: 'Global Incidents', icon: AlertTriangle, color: '#FF3D3D', dataKey: 'gdelt' },
       { key: 'gps_jamming', label: 'GPS Jamming', icon: Radio, color: '#FF4444', dataKey: 'gps_jamming' },
     ],
@@ -88,7 +95,7 @@ const ALL_LAYERS = LAYER_GROUPS.flatMap(g => g.layers);
 function LayerPanel({ data, activeLayers, setActiveLayers, sbirYearRange, setSbirYearRange }: LayerPanelProps) {
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>(() => {
     const initial: Record<string, boolean> = {};
-    LAYER_GROUPS.forEach(g => { initial[g.label] = true; });
+    LAYER_GROUPS.forEach(g => { initial[g.label] = false; });
     return initial;
   });
 
@@ -123,7 +130,7 @@ function LayerPanel({ data, activeLayers, setActiveLayers, sbirYearRange, setSbi
   const yearOptions = Array.from({ length: 21 }, (_, i) => 2010 + i);
 
   return (
-    <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.3, duration: 0.6 }} className="glass-panel p-3 pointer-events-auto">
+    <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.3, duration: 0.6 }} className="glass-panel p-3 pointer-events-auto max-h-[calc(100vh-150px)] overflow-y-auto overscroll-contain touch-pan-y styled-scrollbar" style={{ WebkitOverflowScrolling: 'touch' }}>
       {/* Header */}
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">

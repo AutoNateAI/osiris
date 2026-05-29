@@ -1733,7 +1733,7 @@ app.get('/api/hud-pha-flows', cache(300000, async (req) => {
 
 app.get('/api/sbir-recipients', cache(300000, async (req) => {
   const state = req.query.state ? String(req.query.state).toUpperCase() : '';
-  const startYear = Math.max(2010, Math.min(2030, Number(req.query.start_year || 2010)));
+  const startYear = Math.max(2010, Math.min(2030, Number(req.query.start_year || 2025)));
   const endYear = Math.max(startYear, Math.min(2030, Number(req.query.end_year || 2030)));
   const limit = Math.min(Number(req.query.limit || 20000), 25000);
   let query = db.collection('sbir_recipients').orderBy('total_awarded', 'desc').limit(limit);

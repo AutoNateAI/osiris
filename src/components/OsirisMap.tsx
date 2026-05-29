@@ -49,7 +49,6 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
   const popupRef = useRef<maplibregl.Popup | null>(null);
   const [mapReady, setMapReady] = useState(false);
   const prevStyleRef = useRef(mapStyle);
-  const hudFitRef = useRef(false);
 
   // Create aircraft icon on canvas (for WebGL symbol layer)
   const createIcon = useCallback((map: maplibregl.Map, id: string, color: string, size: number) => {
@@ -1001,24 +1000,6 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
       .filter((r: any) => Number.isFinite(Number(r.lng)) && Number.isFinite(Number(r.lat)))
       .map((r: any) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [Number(r.lng), Number(r.lat)] }, properties: { ...r, type: 'sbir_recipient' } })) : []);
   }, [mapReady, data.sbir_recipients, activeLayers.sbir_recipients, setGeo]);
-
-  useEffect(() => {
-    if (!mapReady) return;
-    if (!activeLayers.hud_pha_flows) {
-      hudFitRef.current = false;
-      return;
-    }
-    if (hudFitRef.current || !Array.isArray(data.hud_phas) || data.hud_phas.length === 0) return;
-    const map = mapRef.current;
-    if (!map) return;
-    const points = data.hud_phas
-      .map((p: any) => [Number(p.lng), Number(p.lat)] as [number, number])
-      .filter(([lng, lat]: [number, number]) => Number.isFinite(lng) && Number.isFinite(lat));
-    if (!points.length) return;
-    const bounds = points.reduce((b, coord) => b.extend(coord), new maplibregl.LngLatBounds(points[0], points[0]));
-    map.fitBounds(bounds, { padding: 80, maxZoom: 5.5, duration: 900 });
-    hudFitRef.current = true;
-  }, [mapReady, activeLayers.hud_pha_flows, data.hud_phas]);
 
   useEffect(() => {
     if (!mapReady) return;
