@@ -280,10 +280,16 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
         'text-field': ['get','name'], 'text-size': 9, 'text-font': ['Open Sans Regular'],
         'text-offset': [0, 1.6], 'text-max-width': 12,
       }, paint: { 'text-color': '#FFFFFF', 'text-halo-color': '#000', 'text-halo-width': 1 }});
+      map.addLayer({ id: 'power-edge-glow', type: 'line', source: 'power-edges', paint: {
+        'line-color': ['match', ['get','party'], 'Democrat', '#2F80ED', 'Republican', '#EB5757', '#FFFFFF'],
+        'line-width': ['interpolate',['linear'],['zoom'], 1,10, 3,8, 6,4, 9,1.5],
+        'line-opacity': ['interpolate',['linear'],['zoom'], 1,0.22, 4,0.18, 7,0.08, 10,0],
+        'line-blur': ['interpolate',['linear'],['zoom'], 1,5, 5,3, 9,1],
+      }});
       map.addLayer({ id: 'power-edge-lines', type: 'line', source: 'power-edges', paint: {
         'line-color': ['match', ['get','party'], 'Democrat', '#2F80ED', 'Republican', '#EB5757', '#FFFFFF'],
-        'line-width': ['interpolate',['linear'],['zoom'], 1,0.7, 5,1.5, 9,2.5],
-        'line-opacity': 0.34,
+        'line-width': ['interpolate',['linear'],['zoom'], 1,4.5, 3,4, 6,2.5, 10,1.25, 14,0.8],
+        'line-opacity': ['interpolate',['linear'],['zoom'], 1,0.72, 4,0.62, 8,0.42, 12,0.28],
         'line-dasharray': [2, 2],
       }});
 
@@ -1036,7 +1042,7 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
     setVis(['infra-glow','infra-dots','infra-label'], activeLayers.infrastructure);
     setVis(['hud-pha-bubbles','hud-pha-label'], activeLayers.hud_pha_flows);
     setVis(['power-dots','power-label'], activeLayers.federal_power);
-    setVis(['power-edge-lines'], activeLayers.power_edges);
+    setVis(['power-edge-glow','power-edge-lines'], activeLayers.power_edges);
     setVis(['maritime-glow','maritime-dots','maritime-label'], activeLayers.maritime);
     setVis(['choke-glow','choke-dots','choke-label'], activeLayers.maritime);
     setVis(['ship-dots','ship-label'], activeLayers.maritime);
