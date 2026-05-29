@@ -112,7 +112,7 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
       createDot(map, 'dot-cctv', '#39FF14', 10);
 
       // Sources
-      const sources = ['flights','military','jets','private-fl','satellites','earthquakes','gdelt','gps-jamming','day-night','cctv','fires','weather','infrastructure','hud-pha-flows','sbir-recipients','federal-power','power-edges','maritime','maritime-choke','maritime-ships','live-news','sigint-news','conflict-zones', 'war-alerts-targets', 'war-alerts-lines', 'balloons', 'radiation', 'ip-sweep-devices', 'ip-sweep-pulse', 'ip-sweep-connections', 'scan-targets'];
+      const sources = ['flights','military','jets','private-fl','satellites','earthquakes','gdelt','gps-jamming','day-night','cctv','fires','weather','infrastructure','hud-pha-flows','sbir-recipients','education-orgs','workforce-orgs','health-orgs','funded-faith-orgs','federal-power','power-edges','maritime','maritime-choke','maritime-ships','live-news','sigint-news','conflict-zones', 'war-alerts-targets', 'war-alerts-lines', 'balloons', 'radiation', 'ip-sweep-devices', 'ip-sweep-pulse', 'ip-sweep-connections', 'scan-targets'];
       sources.forEach(s => map.addSource(s, { type: 'geojson', data: EMPTY_FC }));
 
       map.addSource('country-color-areas', { type: 'geojson', data: COUNTRY_GEOJSON_URL });
@@ -330,6 +330,31 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
         'text-field': ['get','name'], 'text-size': 9, 'text-font': ['Open Sans Bold'],
         'text-offset': [0, 1.5], 'text-allow-overlap': false,
       }, paint: { 'text-color': '#FFF7CC', 'text-halo-color': '#100F08', 'text-halo-width': 1 }});
+
+      const addCapabilityLayer = (prefix: string, source: string, color: string) => {
+        map.addLayer({ id: `${prefix}-glow`, type: 'circle', source, paint: {
+          'circle-radius': ['interpolate',['linear'],['zoom'], 1,6, 5,12, 9,20],
+          'circle-color': color,
+          'circle-opacity': ['interpolate',['linear'],['zoom'], 1,0.14, 6,0.07, 10,0.03],
+          'circle-blur': 1,
+        }});
+        map.addLayer({ id: `${prefix}-dots`, type: 'circle', source, paint: {
+          'circle-radius': ['interpolate',['linear'],['get','node_weight'], 0,3, 25,5, 75,8, 150,12],
+          'circle-color': color,
+          'circle-opacity': 0.78,
+          'circle-stroke-width': 1.4,
+          'circle-stroke-color': '#050505',
+          'circle-stroke-opacity': 0.8,
+        }});
+        map.addLayer({ id: `${prefix}-label`, type: 'symbol', source, minzoom: 6, layout: {
+          'text-field': ['get','name'], 'text-size': 9, 'text-font': ['Open Sans Regular'],
+          'text-offset': [0, 1.5], 'text-max-width': 12, 'text-allow-overlap': false,
+        }, paint: { 'text-color': color, 'text-halo-color': '#000', 'text-halo-width': 1 }});
+      };
+      addCapabilityLayer('education-org', 'education-orgs', '#56CCF2');
+      addCapabilityLayer('workforce-org', 'workforce-orgs', '#00E676');
+      addCapabilityLayer('health-org', 'health-orgs', '#FF4081');
+      addCapabilityLayer('funded-faith-org', 'funded-faith-orgs', '#FFF7CC');
 
       map.addLayer({ id: 'power-dots', type: 'circle', source: 'federal-power', paint: {
         'circle-radius': ['match', ['get','branch'], 'white_house', 8, 'judicial', 7, 5],
@@ -870,13 +895,26 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
       onEntityClick?.({ ...p, type: 'sbir_recipient' });
     });
 
+    [
+      ['education-org-dots', 'education_org'],
+      ['workforce-org-dots', 'workforce_org'],
+      ['health-org-dots', 'health_org'],
+      ['funded-faith-org-dots', 'funded_faith_org'],
+    ].forEach(([layer, type]) => {
+      map.on('click', layer, e => {
+        const p = e.features?.[0]?.properties;
+        if (!p) return;
+        onEntityClick?.({ ...p, type });
+      });
+    });
+
     map.on('click', 'power-dots', e => {
       const p = e.features?.[0]?.properties;
       if (!p) return;
       onEntityClick?.({ ...p, type: 'federal_power' });
     });
 
-    ['hud-pha-bubbles', 'sbir-recipient-dots', 'power-dots'].forEach(layer => {
+    ['hud-pha-bubbles', 'sbir-recipient-dots', 'education-org-dots', 'workforce-org-dots', 'health-org-dots', 'funded-faith-org-dots', 'power-dots'].forEach(layer => {
       map.on('mouseenter', layer, () => { map.getCanvas().style.cursor = 'pointer'; });
       map.on('mouseleave', layer, () => { map.getCanvas().style.cursor = ''; });
     });
@@ -1000,6 +1038,25 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
       .filter((r: any) => Number.isFinite(Number(r.lng)) && Number.isFinite(Number(r.lat)))
       .map((r: any) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [Number(r.lng), Number(r.lat)] }, properties: { ...r, type: 'sbir_recipient' } })) : []);
   }, [mapReady, data.sbir_recipients, activeLayers.sbir_recipients, setGeo]);
+
+  useEffect(() => {
+    if (!mapReady) return;
+    const toCapabilityFeatures = (items: any[], type: string) => (Array.isArray(items) ? items : [])
+      .filter((item: any) => Number.isFinite(Number(item.lng)) && Number.isFinite(Number(item.lat)))
+      .map((item: any) => ({
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [Number(item.lng), Number(item.lat)] },
+        properties: {
+          ...item,
+          type,
+          node_weight: Number(item.student_size || item.award_count || item.total_obligations || item.data_confidence || 1),
+        },
+      }));
+    setGeo('education-orgs', activeLayers.education_orgs ? toCapabilityFeatures(data.education_orgs, 'education_org') : []);
+    setGeo('workforce-orgs', activeLayers.workforce_orgs ? toCapabilityFeatures(data.workforce_orgs, 'workforce_org') : []);
+    setGeo('health-orgs', activeLayers.health_orgs ? toCapabilityFeatures(data.health_orgs, 'health_org') : []);
+    setGeo('funded-faith-orgs', activeLayers.funded_faith_orgs ? toCapabilityFeatures(data.funded_faith_orgs, 'funded_faith_org') : []);
+  }, [mapReady, data.education_orgs, data.workforce_orgs, data.health_orgs, data.funded_faith_orgs, activeLayers.education_orgs, activeLayers.workforce_orgs, activeLayers.health_orgs, activeLayers.funded_faith_orgs, setGeo]);
 
   useEffect(() => {
     if (!mapReady) return;
@@ -1150,6 +1207,10 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
     setVis(['infra-glow','infra-dots','infra-label'], activeLayers.infrastructure);
     setVis(['hud-pha-bubbles','hud-pha-label'], activeLayers.hud_pha_flows);
     setVis(['sbir-recipient-glow','sbir-recipient-dots','sbir-recipient-label'], activeLayers.sbir_recipients);
+    setVis(['education-org-glow','education-org-dots','education-org-label'], activeLayers.education_orgs);
+    setVis(['workforce-org-glow','workforce-org-dots','workforce-org-label'], activeLayers.workforce_orgs);
+    setVis(['health-org-glow','health-org-dots','health-org-label'], activeLayers.health_orgs);
+    setVis(['funded-faith-org-glow','funded-faith-org-dots','funded-faith-org-label'], activeLayers.funded_faith_orgs);
     setVis(['power-dots','power-label'], activeLayers.federal_power || activeLayers.federal_power_house || activeLayers.federal_power_senate || activeLayers.federal_power_judicial || activeLayers.federal_power_white_house);
     setVis(['power-edge-glow','power-edge-lines'], activeLayers.power_edges && (activeLayers.power_edges_democrat || activeLayers.power_edges_republican));
     setVis(['maritime-glow','maritime-dots','maritime-label'], activeLayers.maritime);

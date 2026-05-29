@@ -7,7 +7,7 @@ import {
   Shield, Sun, AlertTriangle, Camera, Flame, Target,
   CloudLightning, Radiation, Tv, Anchor, Ship, Newspaper,
   ChevronDown, ChevronUp, ToggleLeft, ToggleRight, Landmark, Users,
-  BriefcaseBusiness,
+  BriefcaseBusiness, GraduationCap, HeartPulse, HandHeart,
 } from 'lucide-react';
 
 interface LayerPanelProps {
@@ -26,6 +26,10 @@ const LAYER_GROUPS = [
     layers: [
       { key: 'hud_pha_flows', label: 'HUD PHA Flows', icon: Landmark, color: '#00AEEF', dataKey: 'hud_phas,hud_pha_awards,hud_state_totals' },
       { key: 'sbir_recipients', label: 'SBIR/STTR Recipients', icon: BriefcaseBusiness, color: '#F2C94C', dataKey: 'sbir_recipients' },
+      { key: 'education_orgs', label: 'Education Ecosystem', icon: GraduationCap, color: '#56CCF2', dataKey: 'education_orgs' },
+      { key: 'workforce_orgs', label: 'Workforce Ecosystem', icon: BriefcaseBusiness, color: '#00E676', dataKey: 'workforce_orgs' },
+      { key: 'health_orgs', label: 'Health Ecosystem', icon: HeartPulse, color: '#FF4081', dataKey: 'health_orgs' },
+      { key: 'funded_faith_orgs', label: 'Funded Faith Orgs', icon: HandHeart, color: '#FFF7CC', dataKey: 'funded_faith_orgs' },
       { key: 'federal_power_house', label: 'U.S. Representatives', icon: Users, color: '#FFFFFF', dataKey: 'federal_power', countFilter: (p: any) => p.branch === 'congress' && p.chamber === 'House' },
       { key: 'federal_power_senate', label: 'U.S. Senators', icon: Users, color: '#D4AF37', dataKey: 'federal_power', countFilter: (p: any) => p.branch === 'congress' && p.chamber === 'Senate' },
       { key: 'federal_power_judicial', label: 'Federal Judges', icon: Landmark, color: '#B388FF', dataKey: 'federal_power', countFilter: (p: any) => p.branch === 'judicial' },

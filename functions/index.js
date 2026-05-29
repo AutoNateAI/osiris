@@ -550,11 +550,30 @@ const stateCapitals = {
 };
 
 const stateCodes = new Set(Object.keys(stateCentroids));
+const stateNameToCode = {
+  alabama: 'AL', alaska: 'AK', arizona: 'AZ', arkansas: 'AR', california: 'CA', colorado: 'CO', connecticut: 'CT', delaware: 'DE',
+  florida: 'FL', georgia: 'GA', hawaii: 'HI', idaho: 'ID', illinois: 'IL', indiana: 'IN', iowa: 'IA', kansas: 'KS',
+  kentucky: 'KY', louisiana: 'LA', maine: 'ME', maryland: 'MD', massachusetts: 'MA', michigan: 'MI', minnesota: 'MN',
+  mississippi: 'MS', missouri: 'MO', montana: 'MT', nebraska: 'NE', nevada: 'NV', 'new hampshire': 'NH', 'new jersey': 'NJ',
+  'new mexico': 'NM', 'new york': 'NY', 'north carolina': 'NC', 'north dakota': 'ND', ohio: 'OH', oklahoma: 'OK',
+  oregon: 'OR', pennsylvania: 'PA', 'rhode island': 'RI', 'south carolina': 'SC', 'south dakota': 'SD', tennessee: 'TN',
+  texas: 'TX', utah: 'UT', vermont: 'VT', virginia: 'VA', washington: 'WA', 'west virginia': 'WV', wisconsin: 'WI',
+  wyoming: 'WY', 'district of columbia': 'DC',
+};
 
 function deriveStateFromAward(awardId = '', recipientState = '') {
   if (stateCodes.has(recipientState)) return recipientState;
   const prefix = String(awardId).slice(0, 2).toUpperCase();
   return stateCodes.has(prefix) ? prefix : 'DC';
+}
+
+function inferStateFromText(text = '') {
+  const lower = String(text).toLowerCase();
+  for (const [name, code] of Object.entries(stateNameToCode)) {
+    if (lower.includes(name)) return code;
+  }
+  const codeMatch = lower.match(/\b(AL|AK|AZ|AR|CA|CO|CT|DE|DC|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY)\b/i);
+  return codeMatch && stateCodes.has(codeMatch[0].toUpperCase()) ? codeMatch[0].toUpperCase() : '';
 }
 
 function centroidForState(state) {
@@ -565,6 +584,69 @@ function centroidForState(state) {
 function capitalForState(state) {
   const [city, lat, lng] = stateCapitals[state] || stateCapitals.DC;
   return { city, lat, lng };
+}
+
+function fallbackCoordsForState(state) {
+  const capital = capitalForState(stateCodes.has(state) ? state : 'DC');
+  return { lat: capital.lat, lng: capital.lng, city: capital.city };
+}
+
+function normalizePointOrg(input) {
+  const state = String(input.state || '').toUpperCase();
+  const fallback = fallbackCoordsForState(state);
+  const lat = Number(input.lat ?? fallback.lat);
+  const lng = Number(input.lng ?? fallback.lng);
+  return {
+    id: input.id || md5(`${input.category}:${input.name}:${input.city || fallback.city}:${state}`),
+    name: input.name || 'Unknown Organization',
+    category: input.category,
+    subtype: input.subtype || input.category,
+    city: input.city || fallback.city,
+    state: stateCodes.has(state) ? state : 'DC',
+    county: input.county || '',
+    lat: Number.isFinite(lat) ? lat : fallback.lat,
+    lng: Number.isFinite(lng) ? lng : fallback.lng,
+    source: input.source || '',
+    source_id: input.source_id || '',
+    website: input.website || '',
+    phone: input.phone || '',
+    data_confidence: Number(input.data_confidence || (input.lat && input.lng ? 90 : 55)),
+    last_updated: new Date().toISOString(),
+    ...input.extra,
+  };
+}
+
+async function writeCollection(collectionName, records) {
+  let batch = db.batch();
+  let writes = 0;
+  for (const record of records) {
+    batch.set(db.collection(collectionName).doc(record.id), record, { merge: true });
+    writes++;
+    if (writes >= 450) {
+      await batch.commit();
+      batch = db.batch();
+      writes = 0;
+    }
+  }
+  if (writes) await batch.commit();
+  return records.length;
+}
+
+async function clearCollection(collectionName, limit = 10000) {
+  const snap = await db.collection(collectionName).limit(limit).get();
+  let batch = db.batch();
+  let writes = 0;
+  for (const doc of snap.docs) {
+    batch.delete(doc.ref);
+    writes++;
+    if (writes >= 450) {
+      await batch.commit();
+      batch = db.batch();
+      writes = 0;
+    }
+  }
+  if (writes) await batch.commit();
+  return snap.size;
 }
 
 function normalizeHudAward(row) {
@@ -911,6 +993,237 @@ async function persistHudAwards(awards) {
     }
   }
   if (writes) await batch.commit();
+}
+
+function schoolOwnership(value) {
+  return { 1: 'Public', 2: 'Private nonprofit', 3: 'Private for-profit' }[Number(value)] || 'Unknown';
+}
+
+function predominantDegree(value) {
+  return { 0: 'Non-degree', 1: 'Certificate', 2: 'Associate', 3: 'Bachelor', 4: 'Graduate' }[Number(value)] || 'Unknown';
+}
+
+async function fetchEducationOrgs(limit = 1000, state = '') {
+  const perPage = Math.min(100, limit);
+  const pages = Math.ceil(Math.min(limit, 5000) / perPage);
+  const apiKey = process.env.DATA_GOV_API_KEY || 'DEMO_KEY';
+  const fields = [
+    'id', 'school.name', 'school.city', 'school.state', 'school.zip', 'school.school_url',
+    'school.ownership', 'school.degrees_awarded.predominant', 'location.lat', 'location.lon',
+    'latest.student.size', 'latest.completion.completion_rate_4yr_150nt', 'latest.aid.pell_grant_rate',
+  ].join(',');
+  const records = [];
+  for (let page = 0; page < pages; page++) {
+    const params = new URLSearchParams({
+      api_key: apiKey,
+      per_page: String(perPage),
+      page: String(page),
+      fields,
+      sort: 'latest.student.size:desc',
+    });
+    if (state && stateCodes.has(state)) params.set('school.state', state);
+    const data = await fetchJson(`https://api.data.gov/ed/collegescorecard/v1/schools?${params.toString()}`, { signal: AbortSignal.timeout(20000) });
+    const results = data.results || [];
+    for (const row of results) {
+      records.push(normalizePointOrg({
+        id: `edu-${row.id}`,
+        name: row['school.name'],
+        category: 'education',
+        subtype: predominantDegree(row['school.degrees_awarded.predominant']),
+        city: row['school.city'],
+        state: row['school.state'],
+        lat: row['location.lat'],
+        lng: row['location.lon'],
+        source: 'College Scorecard',
+        source_id: String(row.id || ''),
+        website: row['school.school_url'] ? `https://${String(row['school.school_url']).replace(/^https?:\/\//, '')}` : '',
+        data_confidence: row['location.lat'] && row['location.lon'] ? 95 : 60,
+        extra: {
+          institution_type: predominantDegree(row['school.degrees_awarded.predominant']),
+          school_ownership: schoolOwnership(row['school.ownership']),
+          student_size: Number(row['latest.student.size'] || 0),
+          completion_rate: Number(row['latest.completion.completion_rate_4yr_150nt'] || 0),
+          pell_share: Number(row['latest.aid.pell_grant_rate'] || 0),
+        },
+      }));
+    }
+    if (!results.length) break;
+  }
+  return records.slice(0, limit);
+}
+
+async function fetchHealthOrgs(limit = 2000, state = '') {
+  const records = [];
+  const pageSize = Math.min(2000, limit);
+  for (let offset = 0; offset < Math.min(limit, 10000); offset += pageSize) {
+    const where = state && stateCodes.has(state) ? `SITE_STATE_ABBR='${state}'` : '1=1';
+    const params = new URLSearchParams({
+      where,
+      outFields: '*',
+      f: 'json',
+      resultOffset: String(offset),
+      resultRecordCount: String(pageSize),
+    });
+    const data = await fetchJson(`https://gisportal.hrsa.gov/server/rest/services/HealthCareFacilities/PrimaryHealthCareFacilities_FS/MapServer/0/query?${params.toString()}`, { signal: AbortSignal.timeout(20000) });
+    const features = data.features || [];
+    for (const feature of features) {
+      const a = feature.attributes || {};
+      records.push(normalizePointOrg({
+        id: `health-hrsa-${a.HCC_FCT_ID || a.OBJECTID || md5(`${a.SITE_NM}:${a.SITE_CITY}:${a.SITE_STATE_ABBR}`)}`,
+        name: a.SITE_NM || a.GRANTEE_NM,
+        category: 'health',
+        subtype: a.HCC_TYP_DESC || a.HCC_LOC_SETTING_DESC || 'Health Center',
+        city: a.SITE_CITY,
+        state: a.SITE_STATE_ABBR,
+        county: a.COUNTY_NM,
+        lat: feature.geometry?.y,
+        lng: feature.geometry?.x,
+        source: 'HRSA Health Care Service Delivery Sites',
+        source_id: String(a.SITE_SOURCE_ID || a.HCC_FCT_ID || ''),
+        website: a.SITE_URL ? `https://${String(a.SITE_URL).replace(/^https?:\/\//, '')}` : '',
+        phone: a.SITE_PHONE_NUM,
+        data_confidence: feature.geometry?.y && feature.geometry?.x ? 95 : 55,
+        extra: {
+          facility_type: a.HCC_TYP_DESC || '',
+          fqhc_status: a.FQHC_LAL_NUM ? 'FQHC look-alike' : (a.GRANT_NUM ? 'HRSA grantee/site' : ''),
+          rural_health: a.RURAL_IND === 'Y',
+          hrsa_grantee: a.GRANTEE_NM || '',
+          service_area: a.SITE_POP_TYP_DESC || '',
+          congressional_district: a.CONG_DIST_NM || '',
+        },
+      }));
+    }
+    if (features.length < pageSize) break;
+  }
+  return records.slice(0, limit);
+}
+
+async function searchUsaspendingCapability({ category, keyword, agencyName = '', limit = 500, maxPages = 5, state = '' }) {
+  const orgs = new Map();
+  for (let page = 1; page <= maxPages; page++) {
+    const filters = {
+      award_type_codes: ['02', '03', '04', '05'],
+      time_period: [{ start_date: '2010-01-01', end_date: new Date().toISOString().slice(0, 10) }],
+      keyword,
+    };
+    if (agencyName) filters.agencies = [{ type: 'funding', tier: 'toptier', name: agencyName }];
+    const body = {
+      filters,
+      fields: ['Award ID', 'Recipient Name', 'Recipient City', 'Recipient State', 'Recipient ZIP Code', 'Start Date', 'End Date', 'Award Amount', 'Awarding Agency', 'Funding Agency', 'CFDA Program Title'],
+      sort: 'Start Date',
+      order: 'desc',
+      limit: Math.min(limit, 100),
+      page,
+    };
+    const data = await fetchJson('https://api.usaspending.gov/api/v2/search/spending_by_award/', {
+      method: 'POST',
+      signal: AbortSignal.timeout(25000),
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    for (const row of data.results || []) {
+      const rowState = String(row['Recipient State'] || inferStateFromText(`${row['Recipient Name'] || ''} ${row['Recipient City'] || ''}`) || '').toUpperCase();
+      if (state && stateCodes.has(state) && rowState !== state) continue;
+      const name = row['Recipient Name'] || '';
+      if (!name) continue;
+      const key = md5(`${category}:${name}:${rowState || row['Recipient ZIP Code'] || ''}`);
+      const current = orgs.get(key) || normalizePointOrg({
+        id: `${category}-${key}`,
+        name,
+        category,
+        subtype: row['CFDA Program Title'] || keyword,
+        city: row['Recipient City'] || '',
+        state: rowState,
+        source: 'USAspending',
+        source_id: key,
+        data_confidence: row['Recipient City'] ? 70 : 45,
+        extra: {
+          award_count: 0,
+          total_obligations: 0,
+          latest_award_date: '',
+          awarding_agencies: [],
+          programs: [],
+        },
+      });
+      current.award_count = Number(current.award_count || 0) + 1;
+      current.total_obligations = Number(current.total_obligations || 0) + Number(row['Award Amount'] || 0);
+      if ((row['Start Date'] || '') > (current.latest_award_date || '')) current.latest_award_date = row['Start Date'];
+      current.awarding_agencies = [...new Set([...(current.awarding_agencies || []), row['Awarding Agency'] || row['Funding Agency']].filter(Boolean))].slice(0, 8);
+      current.programs = [...new Set([...(current.programs || []), row['CFDA Program Title']].filter(Boolean))].slice(0, 8);
+      orgs.set(key, current);
+    }
+    if (!data.results?.length || !data.page_metadata?.hasNext || orgs.size >= limit) break;
+  }
+  return Array.from(orgs.values()).slice(0, limit);
+}
+
+async function fetchWorkforceOrgs(limit = 1000, state = '') {
+  const terms = ['workforce development', 'WIOA', 'American Job Center', 'apprenticeship'];
+  const all = [];
+  for (const term of terms) {
+    all.push(...await searchUsaspendingCapability({ category: 'workforce', keyword: term, agencyName: 'Department of Labor', limit: Math.ceil(limit / terms.length), maxPages: 4, state }));
+  }
+  const byId = new Map(all.map((record) => [record.id, { ...record, subtype: record.subtype || 'Workforce funded recipient' }]));
+  return Array.from(byId.values()).slice(0, limit);
+}
+
+const faithTerms = ['church', 'ministries', 'ministry', 'mission', 'faith', 'baptist', 'methodist', 'catholic', 'synagogue', 'mosque', 'temple'];
+function faithConfidence(name = '') {
+  const lower = name.toLowerCase();
+  const matches = faithTerms.filter((term) => lower.includes(term));
+  return { matches, confidence: Math.min(95, 45 + matches.length * 18) };
+}
+
+async function fetchFundedFaithOrgs(limit = 1000, state = '') {
+  const all = [];
+  for (const term of ['church', 'ministries', 'faith based', 'catholic charities', 'mission']) {
+    all.push(...await searchUsaspendingCapability({ category: 'funded_faith', keyword: term, limit: Math.ceil(limit / 5), maxPages: 4, state }));
+  }
+  const filtered = [];
+  const seen = new Set();
+  for (const record of all) {
+    if (seen.has(record.id)) continue;
+    seen.add(record.id);
+    const signal = faithConfidence(record.name);
+    if (signal.matches.length === 0) continue;
+    filtered.push({
+      ...record,
+      subtype: 'Federally funded faith organization',
+      faith_match_terms: signal.matches,
+      faith_confidence: signal.confidence,
+      data_confidence: Math.max(Number(record.data_confidence || 0), signal.confidence),
+    });
+  }
+  return filtered.slice(0, limit);
+}
+
+async function recomputeCommunityCapabilitySummary() {
+  const [eduSnap, workforceSnap, healthSnap, faithSnap, phaSnap, sbirSnap] = await Promise.all([
+    db.collection('education_orgs').limit(10000).get(),
+    db.collection('workforce_orgs').limit(10000).get(),
+    db.collection('health_orgs').limit(10000).get(),
+    db.collection('funded_faith_orgs').limit(10000).get(),
+    db.collection('hud_phas').limit(5000).get(),
+    db.collection('sbir_recipients').limit(25000).get(),
+  ]);
+  const summaries = new Map();
+  const ensure = (state) => {
+    const code = stateCodes.has(state) ? state : 'DC';
+    if (!summaries.has(code)) summaries.set(code, { id: code, state: code, ...centroidForState(code), education_count: 0, workforce_count: 0, health_count: 0, funded_faith_count: 0, pha_count: 0, sbir_recipient_count: 0, total_known_federal_obligations: 0, last_updated: new Date().toISOString() });
+    return summaries.get(code);
+  };
+  eduSnap.docs.forEach((doc) => { ensure(doc.data().state).education_count++; });
+  workforceSnap.docs.forEach((doc) => { const d = doc.data(); const s = ensure(d.state); s.workforce_count++; s.total_known_federal_obligations += Number(d.total_obligations || 0); });
+  healthSnap.docs.forEach((doc) => { ensure(doc.data().state).health_count++; });
+  faithSnap.docs.forEach((doc) => { const d = doc.data(); const s = ensure(d.state); s.funded_faith_count++; s.total_known_federal_obligations += Number(d.total_obligations || 0); });
+  phaSnap.docs.forEach((doc) => { ensure(doc.data().state).pha_count++; });
+  sbirSnap.docs.forEach((doc) => { ensure(doc.data().state_code || doc.data().state).sbir_recipient_count++; });
+  const records = Array.from(summaries.values()).map((s) => ({
+    ...s,
+    capability_score: Math.min(100, Math.round(s.education_count * 0.4 + s.workforce_count * 0.5 + s.health_count * 0.35 + s.funded_faith_count * 0.3 + s.pha_count * 0.25 + s.sbir_recipient_count * 0.15)),
+  }));
+  await writeCollection('community_capability_summary', records);
+  return records.length;
 }
 
 const STATIC_POWER_ORIGINS = {
@@ -1913,6 +2226,27 @@ app.get('/api/sbir-recipients', cache(300000, async (req) => {
   };
 }));
 
+async function readCapabilityCollection(collectionName, req) {
+  const state = req.query.state ? String(req.query.state).toUpperCase() : '';
+  const limit = Math.min(Number(req.query.limit || 5000), 10000);
+  let query = db.collection(collectionName).limit(limit);
+  if (state && stateCodes.has(state)) query = db.collection(collectionName).where('state', '==', state).limit(limit);
+  const snap = await query.get();
+  const orgs = snap.docs.map((doc) => doc.data()).sort((a, b) => Number(b.total_obligations || b.student_size || b.data_confidence || 0) - Number(a.total_obligations || a.student_size || a.data_confidence || 0));
+  return { orgs, total: orgs.length, timestamp: new Date().toISOString() };
+}
+
+app.get('/api/education-orgs', cache(300000, async (req) => readCapabilityCollection('education_orgs', req)));
+app.get('/api/workforce-orgs', cache(300000, async (req) => readCapabilityCollection('workforce_orgs', req)));
+app.get('/api/health-orgs', cache(300000, async (req) => readCapabilityCollection('health_orgs', req)));
+app.get('/api/funded-faith-orgs', cache(300000, async (req) => readCapabilityCollection('funded_faith_orgs', req)));
+
+app.get('/api/community-capability-summary', cache(300000, async () => {
+  const snap = await db.collection('community_capability_summary').limit(200).get();
+  const summaries = snap.docs.map((doc) => doc.data());
+  return { summaries, total: summaries.length, timestamp: new Date().toISOString() };
+}));
+
 app.all('/api/hud-pha-flows/update', async (req, res) => {
   try {
     const today = new Date();
@@ -1970,6 +2304,72 @@ app.all('/api/hud-pha-flows/recompute-funding-profiles', async (_req, res) => {
   } catch (err) {
     console.error('[AutoNateAI Intel Functions] HUD PHA funding profile recompute failed', err);
     res.status(500).json({ error: 'HUD PHA funding profile recompute failed', detail: err instanceof Error ? err.message : 'Unknown error' });
+  }
+});
+
+app.all('/api/education-orgs/update', async (req, res) => {
+  try {
+    const state = req.query.state ? String(req.query.state).toUpperCase() : '';
+    const limit = Math.min(Number(req.query.limit || req.body?.limit || 1000), 5000);
+    const orgs = await fetchEducationOrgs(limit, state);
+    if (!state) await clearCollection('education_orgs');
+    await writeCollection('education_orgs', orgs);
+    res.json({ inserted_or_updated: orgs.length, state: state || 'ALL', timestamp: new Date().toISOString() });
+  } catch (err) {
+    console.error('[AutoNateAI Intel Functions] Education org update failed', err);
+    res.status(500).json({ error: 'Education org update failed', detail: err instanceof Error ? err.message : 'Unknown error' });
+  }
+});
+
+app.all('/api/workforce-orgs/update', async (req, res) => {
+  try {
+    const state = req.query.state ? String(req.query.state).toUpperCase() : '';
+    const limit = Math.min(Number(req.query.limit || req.body?.limit || 1000), 3000);
+    const orgs = await fetchWorkforceOrgs(limit, state);
+    if (!state) await clearCollection('workforce_orgs');
+    await writeCollection('workforce_orgs', orgs);
+    res.json({ inserted_or_updated: orgs.length, state: state || 'ALL', timestamp: new Date().toISOString() });
+  } catch (err) {
+    console.error('[AutoNateAI Intel Functions] Workforce org update failed', err);
+    res.status(500).json({ error: 'Workforce org update failed', detail: err instanceof Error ? err.message : 'Unknown error' });
+  }
+});
+
+app.all('/api/health-orgs/update', async (req, res) => {
+  try {
+    const state = req.query.state ? String(req.query.state).toUpperCase() : '';
+    const limit = Math.min(Number(req.query.limit || req.body?.limit || 2000), 10000);
+    const orgs = await fetchHealthOrgs(limit, state);
+    if (!state) await clearCollection('health_orgs');
+    await writeCollection('health_orgs', orgs);
+    res.json({ inserted_or_updated: orgs.length, state: state || 'ALL', timestamp: new Date().toISOString() });
+  } catch (err) {
+    console.error('[AutoNateAI Intel Functions] Health org update failed', err);
+    res.status(500).json({ error: 'Health org update failed', detail: err instanceof Error ? err.message : 'Unknown error' });
+  }
+});
+
+app.all('/api/funded-faith-orgs/update', async (req, res) => {
+  try {
+    const state = req.query.state ? String(req.query.state).toUpperCase() : '';
+    const limit = Math.min(Number(req.query.limit || req.body?.limit || 1000), 3000);
+    const orgs = await fetchFundedFaithOrgs(limit, state);
+    if (!state) await clearCollection('funded_faith_orgs');
+    await writeCollection('funded_faith_orgs', orgs);
+    res.json({ inserted_or_updated: orgs.length, state: state || 'ALL', timestamp: new Date().toISOString() });
+  } catch (err) {
+    console.error('[AutoNateAI Intel Functions] Funded faith org update failed', err);
+    res.status(500).json({ error: 'Funded faith org update failed', detail: err instanceof Error ? err.message : 'Unknown error' });
+  }
+});
+
+app.all('/api/community-capability/recompute', async (_req, res) => {
+  try {
+    const states = await recomputeCommunityCapabilitySummary();
+    res.json({ states, timestamp: new Date().toISOString() });
+  } catch (err) {
+    console.error('[AutoNateAI Intel Functions] Community capability recompute failed', err);
+    res.status(500).json({ error: 'Community capability recompute failed', detail: err instanceof Error ? err.message : 'Unknown error' });
   }
 });
 
