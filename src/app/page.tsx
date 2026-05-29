@@ -860,7 +860,7 @@ export default function Dashboard() {
 
 
       {/* ── LEFT HUD (desktop): Layers + Stats + Markets + Intel ── */}
-      <div className="desktop-panel absolute left-5 top-20 bottom-24 w-72 flex flex-col gap-3 z-[200] pointer-events-none overflow-y-auto styled-scrollbar pr-1">
+      <div className="desktop-panel absolute left-5 top-20 bottom-24 w-72 flex flex-col gap-3 z-[200] pointer-events-auto overflow-y-auto overscroll-contain touch-pan-y styled-scrollbar pr-1" style={{ WebkitOverflowScrolling: 'touch' }}>
         {showLayers && (
           <>
             <LayerPanel data={data} activeLayers={activeLayers} setActiveLayers={setActiveLayers} sbirYearRange={sbirYearRange} setSbirYearRange={setSbirYearRange} />

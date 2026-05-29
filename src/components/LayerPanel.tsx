@@ -130,7 +130,7 @@ function LayerPanel({ data, activeLayers, setActiveLayers, sbirYearRange, setSbi
   const yearOptions = Array.from({ length: 21 }, (_, i) => 2010 + i);
 
   return (
-    <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.3, duration: 0.6 }} className="glass-panel p-3 pointer-events-auto max-h-[calc(100vh-150px)] overflow-y-auto overscroll-contain touch-pan-y styled-scrollbar" style={{ WebkitOverflowScrolling: 'touch' }}>
+    <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.3, duration: 0.6 }} className="glass-panel p-3 pointer-events-auto">
       {/* Header */}
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
