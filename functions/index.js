@@ -889,17 +889,17 @@ async function persistHudAwards(awards) {
 }
 
 const STATIC_POWER_ORIGINS = {
-  'Donald J. Trump': { origin_city: 'Queens', origin_state: 'NY', lat: 40.7282, lng: -73.7949, origin_source: 'static birthplace seed' },
-  'JD Vance': { origin_city: 'Middletown', origin_state: 'OH', lat: 39.5151, lng: -84.3983, origin_source: 'static birthplace seed' },
-  'John G. Roberts, Jr.': { origin_city: 'Buffalo', origin_state: 'NY', lat: 42.8864, lng: -78.8784, origin_source: 'static birthplace seed' },
-  'Clarence Thomas': { origin_city: 'Pin Point', origin_state: 'GA', lat: 31.9474, lng: -81.0907, origin_source: 'static birthplace seed' },
-  'Samuel A. Alito, Jr.': { origin_city: 'Trenton', origin_state: 'NJ', lat: 40.2206, lng: -74.7597, origin_source: 'static birthplace seed' },
-  'Sonia Sotomayor': { origin_city: 'Bronx', origin_state: 'NY', lat: 40.8448, lng: -73.8648, origin_source: 'static birthplace seed' },
-  'Elena Kagan': { origin_city: 'New York', origin_state: 'NY', lat: 40.7128, lng: -74.006, origin_source: 'static birthplace seed' },
-  'Neil M. Gorsuch': { origin_city: 'Denver', origin_state: 'CO', lat: 39.7392, lng: -104.9903, origin_source: 'static birthplace seed' },
-  'Brett M. Kavanaugh': { origin_city: 'Washington', origin_state: 'DC', lat: 38.9072, lng: -77.0369, origin_source: 'static birthplace seed' },
-  'Amy Coney Barrett': { origin_city: 'New Orleans', origin_state: 'LA', lat: 29.9511, lng: -90.0715, origin_source: 'static birthplace seed' },
-  'Ketanji Brown Jackson': { origin_city: 'Washington', origin_state: 'DC', lat: 38.9072, lng: -77.0369, origin_source: 'static birthplace seed' },
+  'Donald J. Trump': { origin_city: 'Palm Beach', origin_state: 'FL', lat: 26.7056, lng: -80.0364, origin_source: 'static residence seed', origin_kind: 'residence' },
+  'JD Vance': { origin_city: 'Cincinnati', origin_state: 'OH', lat: 39.1031, lng: -84.512, origin_source: 'static residence seed', origin_kind: 'residence' },
+  'John G. Roberts, Jr.': { origin_city: 'Buffalo', origin_state: 'NY', lat: 42.8864, lng: -78.8784, origin_source: 'static birthplace fallback', origin_kind: 'birthplace' },
+  'Clarence Thomas': { origin_city: 'Pin Point', origin_state: 'GA', lat: 31.9474, lng: -81.0907, origin_source: 'static birthplace fallback', origin_kind: 'birthplace' },
+  'Samuel A. Alito, Jr.': { origin_city: 'Trenton', origin_state: 'NJ', lat: 40.2206, lng: -74.7597, origin_source: 'static birthplace fallback', origin_kind: 'birthplace' },
+  'Sonia Sotomayor': { origin_city: 'Bronx', origin_state: 'NY', lat: 40.8448, lng: -73.8648, origin_source: 'static birthplace fallback', origin_kind: 'birthplace' },
+  'Elena Kagan': { origin_city: 'New York', origin_state: 'NY', lat: 40.7128, lng: -74.006, origin_source: 'static birthplace fallback', origin_kind: 'birthplace' },
+  'Neil M. Gorsuch': { origin_city: 'Denver', origin_state: 'CO', lat: 39.7392, lng: -104.9903, origin_source: 'static birthplace fallback', origin_kind: 'birthplace' },
+  'Brett M. Kavanaugh': { origin_city: 'Washington', origin_state: 'DC', lat: 38.9072, lng: -77.0369, origin_source: 'static birthplace fallback', origin_kind: 'birthplace' },
+  'Amy Coney Barrett': { origin_city: 'New Orleans', origin_state: 'LA', lat: 29.9511, lng: -90.0715, origin_source: 'static birthplace fallback', origin_kind: 'birthplace' },
+  'Ketanji Brown Jackson': { origin_city: 'Washington', origin_state: 'DC', lat: 38.9072, lng: -77.0369, origin_source: 'static birthplace fallback', origin_kind: 'birthplace' },
 };
 
 function parseWikidataPoint(point = '') {
@@ -908,15 +908,16 @@ function parseWikidataPoint(point = '') {
   return { lng: Number(match[1]), lat: Number(match[2]) };
 }
 
-async function fetchWikidataBirthplaces(wikidataIds = []) {
+async function fetchWikidataHomeBases(wikidataIds = []) {
   const unique = [...new Set(wikidataIds.filter(Boolean))];
   const out = new Map();
   for (let i = 0; i < unique.length; i += 80) {
     const values = unique.slice(i, i + 80).map((id) => `wd:${id}`).join(' ');
     const query = `
-      SELECT ?person ?placeLabel ?coord WHERE {
+      SELECT ?person ?residenceLabel ?residenceCoord ?birthplaceLabel ?birthplaceCoord WHERE {
         VALUES ?person { ${values} }
-        OPTIONAL { ?person wdt:P19 ?place. ?place wdt:P625 ?coord. }
+        OPTIONAL { ?person wdt:P551 ?residence. ?residence wdt:P625 ?residenceCoord. }
+        OPTIONAL { ?person wdt:P19 ?birthplace. ?birthplace wdt:P625 ?birthplaceCoord. }
         SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
       }
     `;
@@ -928,17 +929,20 @@ async function fetchWikidataBirthplaces(wikidataIds = []) {
       });
       for (const row of data.results?.bindings || []) {
         const id = row.person?.value?.split('/').pop();
-        const coord = parseWikidataPoint(row.coord?.value);
+        const residenceCoord = parseWikidataPoint(row.residenceCoord?.value);
+        const birthCoord = parseWikidataPoint(row.birthplaceCoord?.value);
+        const coord = residenceCoord || birthCoord;
         if (id && coord) {
           out.set(id, {
             ...coord,
-            origin_city: row.placeLabel?.value || '',
-            origin_source: 'Wikidata birthplace',
+            origin_city: residenceCoord ? row.residenceLabel?.value || '' : row.birthplaceLabel?.value || '',
+            origin_source: residenceCoord ? 'Wikidata residence' : 'Wikidata birthplace fallback',
+            origin_kind: residenceCoord ? 'residence' : 'birthplace',
           });
         }
       }
     } catch (err) {
-      console.warn('[AutoNateAI Intel Functions] Wikidata birthplace lookup failed', err instanceof Error ? err.message : err);
+      console.warn('[AutoNateAI Intel Functions] Wikidata home base lookup failed', err instanceof Error ? err.message : err);
     }
   }
   return out;
@@ -947,13 +951,13 @@ async function fetchWikidataBirthplaces(wikidataIds = []) {
 async function updatePowerMap() {
   const legislatorsYaml = await fetchText('https://raw.githubusercontent.com/unitedstates/congress-legislators/main/legislators-current.yaml', { signal: AbortSignal.timeout(20000) }).catch(() => '');
   const legislators = legislatorsYaml ? YAML.parse(legislatorsYaml) : [];
-  const birthplaces = await fetchWikidataBirthplaces((legislators || []).map((leg) => leg.id?.wikidata));
+  const homeBases = await fetchWikidataHomeBases((legislators || []).map((leg) => leg.id?.wikidata));
   const people = [];
   for (const leg of legislators || []) {
     const term = leg.terms?.[leg.terms.length - 1] || {};
     const state = term.state || 'DC';
     const coords = centroidForState(state);
-    const origin = birthplaces.get(leg.id?.wikidata) || {};
+    const origin = homeBases.get(leg.id?.wikidata) || {};
     people.push({
       id: `congress-${leg.id?.bioguide}`,
       name: [leg.name?.official_full || `${leg.name?.first || ''} ${leg.name?.last || ''}`.trim()][0],
@@ -969,6 +973,7 @@ async function updatePowerMap() {
       origin_city: origin.origin_city || '',
       origin_state: origin.origin_state || state,
       origin_source: origin.origin_source || 'state centroid fallback',
+      origin_kind: origin.origin_kind || 'represented_state',
       source: 'unitedstates/congress-legislators',
       updated_at: new Date().toISOString(),
     });
