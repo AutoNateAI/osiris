@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Layers, BarChart3, Newspaper, Search, Share2, Map as MapIcon, X, Globe, MapPinned, Radar, Satellite, Moon, Sun, ExternalLink, AlertTriangle, Building2, RadioTower, Activity, Shield, Database, Wifi } from 'lucide-react';
+import { Layers, BarChart3, Newspaper, Search, Share2, Map as MapIcon, X, Globe, MapPinned, Radar, Satellite, Moon, Sun, ExternalLink, AlertTriangle, Building2, RadioTower, Activity, Shield, Database, Wifi, Landmark, Users } from 'lucide-react';
 import IntelFeed from '@/components/IntelFeed';
 import MarketsPanel from '@/components/MarketsPanel';
 import SearchBar from '@/components/SearchBar';
@@ -91,6 +91,69 @@ const DataThroughput = ({ data }: { data: any }) => {
   return <span className="text-[var(--alert-green)] font-bold tabular-nums">{throughput} MB/s</span>;
 };
 
+function money(value: any) {
+  const n = Number(value || 0);
+  if (!n) return '$0';
+  return n.toLocaleString(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
+}
+
+function EntityDetailModal({ entity, onClose }: { entity: any; onClose: () => void }) {
+  if (!entity) return null;
+  const isPha = entity.type === 'hud_pha';
+  const rows = isPha
+    ? [['Participant Code', entity.participant_code], ['State', entity.state], ['Program Type', entity.program_type || 'Not specified'], ['Total Units', Number(entity.total_units || 0).toLocaleString()], ['Section 8 Units', Number(entity.section8_units || 0).toLocaleString()], ['USAspending Awards', Number(entity.award_count || 0).toLocaleString()], ['USAspending Total', money(entity.total_amount)]]
+    : [['Branch', entity.branch], ['Role', entity.role], ['Chamber', entity.chamber || 'N/A'], ['State', entity.state], ['Party', entity.party || 'Nonpartisan/Unknown'], ['District', entity.district ?? 'Statewide/N/A']];
+  const bars = isPha
+    ? [['USAspending', Number(entity.total_amount || 0), '#00AEEF'], ['HUD OpFund', Number(entity.opfund_amount || 0), '#76FF03'], ['HUD CapFund', Number(entity.capfund_amount || 0), '#D4AF37'], ['ROSS/FSS', Number(entity.ross_amount || 0) + Number(entity.fss_amount || 0), '#B388FF']]
+    : [['Influence Node', entity.branch === 'white_house' ? 100 : entity.branch === 'judicial' ? 80 : 60, entity.party === 'Republican' ? '#EB5757' : entity.party === 'Democrat' ? '#2F80ED' : '#FFFFFF']];
+  const maxBar = Math.max(...bars.map(([, v]) => Number(v)), 1);
+
+  return (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="fixed inset-0 z-[650] bg-black/60 backdrop-blur-sm flex items-center justify-center p-3">
+      <motion.div initial={{ scale: 0.96, y: 12 }} animate={{ scale: 1, y: 0 }} className="glass-panel osiris-glow w-full max-w-3xl max-h-[86vh] overflow-y-auto styled-scrollbar">
+        <div className="flex items-start justify-between gap-4 p-5 border-b border-[var(--border-secondary)]">
+          <div>
+            <div className="hud-label mb-1">{isPha ? 'HUD PUBLIC HOUSING AGENCY' : 'FEDERAL POWER NODE'}</div>
+            <h2 className="text-lg font-mono font-bold text-[var(--text-primary)] tracking-wide">{entity.name}</h2>
+            <p className="text-[10px] text-[var(--text-muted)] mt-1">{isPha ? 'HUD roster details enriched with USAspending award totals where award identifiers match the agency code.' : 'Political authority plotted by represented state or institutional seat for comparison against HUD funding flows.'}</p>
+          </div>
+          <button onClick={onClose} className="p-2 rounded hover:bg-red-900/30 transition-colors"><X className="w-4 h-4" /></button>
+        </div>
+        <div className="p-5 grid md:grid-cols-[1.1fr_0.9fr] gap-5">
+          <div className="space-y-4">
+            <div>
+              <div className="hud-label mb-2">PROFILE TABLE</div>
+              <div className="overflow-hidden rounded border border-[var(--border-secondary)]">
+                {rows.map(([k, v]) => (
+                  <div key={k} className="grid grid-cols-[140px_1fr] border-b last:border-b-0 border-[var(--border-secondary)] text-[11px]">
+                    <div className="bg-[var(--panel-secondary)] px-3 py-2 text-[var(--text-muted)] font-mono">{k}</div>
+                    <div className="px-3 py-2 text-[var(--text-primary)]">{v || 'N/A'}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            {isPha && <div><div className="hud-label mb-2">ADDRESS / CONTACT</div><div className="text-[11px] text-[var(--text-secondary)] leading-relaxed">{[entity.address, entity.city, entity.state, entity.zip].filter(Boolean).join(', ') || 'No address in roster.'}<br />{entity.email || 'No email listed'} · {entity.phone || 'No phone listed'}</div></div>}
+          </div>
+          <div className="space-y-4">
+            <div>
+              <div className="hud-label mb-2">{isPha ? 'FUNDING PROFILE' : 'POWER PROFILE'}</div>
+              <div className="space-y-2">
+                {bars.map(([label, value, color]) => (
+                  <div key={label as string}>
+                    <div className="flex justify-between text-[10px] mb-1"><span>{label}</span><span>{isPha ? money(value) : value}</span></div>
+                    <div className="h-2 bg-white/10 rounded overflow-hidden"><div className="h-full" style={{ width: `${Math.max(3, (Number(value) / maxBar) * 100)}%`, backgroundColor: color as string }} /></div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="rounded border border-[var(--border-secondary)] p-3"><div className="hud-label mb-2">INTERPRETATION</div><p className="text-[10px] text-[var(--text-secondary)] leading-relaxed">{isPha ? 'This point is the HUD agency roster coordinate. Funding bars combine roster profile fields and matched USAspending totals, so historical backfills will make the USAspending side richer over time.' : 'Power Loop Edges draw party-colored links from congressional nodes to HUD flow centers for the same state, making oversight and funding geography visible together.'}</p></div>
+          </div>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
 export default function Dashboard() {
   const dataRef = useRef<any>({});
   const [dataVersion, setDataVersion] = useState(0);
@@ -107,6 +170,7 @@ export default function Dashboard() {
   const [dossierLoading, setDossierLoading] = useState(false);
   const [showSplash, setShowSplash] = useState(true);
   const [activeCamera, setActiveCamera] = useState<any>(null);
+  const [detailEntity, setDetailEntity] = useState<any>(null);
   const [spaceWeather, setSpaceWeather] = useState<any>(null);
   const [showLayers, setShowLayers] = useState(true);
   const [showMarkets, setShowMarkets] = useState(true);
@@ -144,6 +208,7 @@ export default function Dashboard() {
     infrastructure: false,
     hud_pha_flows: false,
     federal_power: false,
+    power_edges: false,
     global_incidents: true,
     war_alerts: false,
     gps_jamming: false,
@@ -281,6 +346,7 @@ export default function Dashboard() {
   // Entity click handler (hoisted from JSX to comply with Rules of Hooks — Fixes #113)
   const handleEntityClick = useCallback((entity: any) => {
     if (entity?.type === 'cctv') setActiveCamera(entity);
+    if (entity?.type === 'hud_pha' || entity?.type === 'federal_power') setDetailEntity(entity);
     if (entity?.type === 'live_news' && entity.url) {
       setLiveFeedUrl(entity.url);
       setLiveFeedName(entity.name);
@@ -1107,6 +1173,8 @@ export default function Dashboard() {
         onClose={() => setActiveCamera(null)}
         onLocate={(lat, lng) => setFlyToLocation({ lat, lng, ts: Date.now() })}
       />
+
+      <EntityDetailModal entity={detailEntity} onClose={() => setDetailEntity(null)} />
 
       {/* ── OVERLAYS ── */}
       <div className="vignette absolute inset-0 pointer-events-none z-[2]" />

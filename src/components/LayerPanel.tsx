@@ -63,6 +63,7 @@ const LAYER_GROUPS = [
       { key: 'infrastructure', label: 'Nuclear Facilities', icon: Radiation, color: '#76FF03', dataKey: 'infrastructure' },
       { key: 'hud_pha_flows', label: 'HUD PHA Flows', icon: Landmark, color: '#00AEEF', dataKey: 'hud_phas,hud_pha_awards,hud_state_totals' },
       { key: 'federal_power', label: 'Federal Power', icon: Users, color: '#FFFFFF', dataKey: 'federal_power' },
+      { key: 'power_edges', label: 'Power Loop Edges', icon: Radio, color: '#B388FF', dataKey: '' },
       { key: 'global_incidents', label: 'Global Incidents', icon: AlertTriangle, color: '#FF3D3D', dataKey: 'gdelt' },
       { key: 'gps_jamming', label: 'GPS Jamming', icon: Radio, color: '#FF4444', dataKey: 'gps_jamming' },
     ],
