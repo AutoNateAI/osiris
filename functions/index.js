@@ -227,6 +227,393 @@ function parseFireCsv(csv) {
   return fires;
 }
 
+const missionClassify = {
+  USA: { mission: 'Military Recon', color: '#FF3D3D' },
+  NROL: { mission: 'NRO Classified', color: '#FF3D3D' },
+  LACROSSE: { mission: 'SAR Imaging', color: '#00E5FF' },
+  MENTOR: { mission: 'SIGINT', color: '#FFFFFF' },
+  ORION: { mission: 'SIGINT', color: '#FFFFFF' },
+  TRUMPET: { mission: 'SIGINT', color: '#FFFFFF' },
+  GPS: { mission: 'Navigation', color: '#448AFF' },
+  NAVSTAR: { mission: 'Navigation', color: '#448AFF' },
+  GLONASS: { mission: 'Navigation', color: '#448AFF' },
+  GALILEO: { mission: 'Navigation', color: '#448AFF' },
+  BEIDOU: { mission: 'Navigation', color: '#448AFF' },
+  SBIRS: { mission: 'Early Warning', color: '#FF00FF' },
+  DSP: { mission: 'Early Warning', color: '#FF00FF' },
+  STARLINK: { mission: 'Commercial Comms', color: '#00E676' },
+  ONEWEB: { mission: 'Commercial Comms', color: '#00E676' },
+  PLANET: { mission: 'Earth Imaging', color: '#00E676' },
+  WORLDVIEW: { mission: 'Commercial Imaging', color: '#00E676' },
+  ISS: { mission: 'Space Station', color: '#FFD700' },
+  TIANGONG: { mission: 'Space Station', color: '#FFD700' },
+  COSMOS: { mission: 'Russian Military', color: '#FF6B6B' },
+  YAOGAN: { mission: 'Chinese Recon', color: '#FF6B6B' },
+  FENGYUN: { mission: 'Weather', color: '#87CEEB' },
+  GOES: { mission: 'Weather', color: '#87CEEB' },
+  NOAA: { mission: 'Weather', color: '#87CEEB' },
+  METEOSAT: { mission: 'Weather', color: '#87CEEB' },
+  LANDSAT: { mission: 'Earth Observation', color: '#90EE90' },
+  SENTINEL: { mission: 'Earth Observation', color: '#90EE90' },
+  TERRA: { mission: 'Earth Science', color: '#90EE90' },
+  AQUA: { mission: 'Earth Science', color: '#90EE90' },
+};
+
+function classifySatellite(name) {
+  const upper = name.toUpperCase();
+  for (const [keyword, info] of Object.entries(missionClassify)) {
+    if (upper.includes(keyword)) return info;
+  }
+  return { mission: 'Unknown', color: '#00E5FF' };
+}
+
+function gmst(jd) {
+  const t = (jd - 2451545.0) / 36525.0;
+  const gmstSec = 67310.54841 + (876600.0 * 3600 + 8640184.812866) * t + 0.093104 * t * t - 6.2e-6 * t * t * t;
+  return ((gmstSec % 86400) / 86400.0) * 2 * Math.PI;
+}
+
+function propagateSatellite(line1, line2) {
+  try {
+    const incDeg = Number.parseFloat(line2.substring(8, 16));
+    const raanDeg = Number.parseFloat(line2.substring(17, 25));
+    const ecc = Number.parseFloat(`0.${line2.substring(26, 33).trim()}`);
+    const argPerDeg = Number.parseFloat(line2.substring(34, 42));
+    const meanAnomDeg = Number.parseFloat(line2.substring(43, 51));
+    const meanMotion = Number.parseFloat(line2.substring(52, 63));
+    if (Number.isNaN(meanMotion) || meanMotion === 0) return null;
+
+    const now = new Date();
+    const epochYear = Number.parseInt(line1.substring(18, 20), 10);
+    const epochDay = Number.parseFloat(line1.substring(20, 32));
+    const fullYear = epochYear > 56 ? 1900 + epochYear : 2000 + epochYear;
+    const epochDate = new Date(fullYear, 0, 1);
+    epochDate.setDate(epochDate.getDate() + epochDay - 1);
+    const elapsedMin = (now.getTime() - epochDate.getTime()) / 60000;
+    if (Math.abs(elapsedMin) > 43200 && !line1.includes('27885-3')) return null;
+
+    const n = meanMotion * 2 * Math.PI / 1440;
+    const meanAnomaly = ((meanAnomDeg * Math.PI / 180) + n * elapsedMin) % (2 * Math.PI);
+    let eccentricAnomaly = meanAnomaly;
+    for (let j = 0; j < 10; j++) eccentricAnomaly = meanAnomaly + ecc * Math.sin(eccentricAnomaly);
+
+    const sinV = Math.sqrt(1 - ecc * ecc) * Math.sin(eccentricAnomaly) / (1 - ecc * Math.cos(eccentricAnomaly));
+    const cosV = (Math.cos(eccentricAnomaly) - ecc) / (1 - ecc * Math.cos(eccentricAnomaly));
+    const trueAnomaly = Math.atan2(sinV, cosV);
+    const semiMajor = (398600.4418 / ((meanMotion * 2 * Math.PI / 86400) ** 2)) ** (1 / 3);
+    const radius = semiMajor * (1 - ecc * Math.cos(eccentricAnomaly));
+    const inc = incDeg * Math.PI / 180;
+    const raan = raanDeg * Math.PI / 180;
+    const argPer = argPerDeg * Math.PI / 180;
+    const u = trueAnomaly + argPer;
+    const x = radius * (Math.cos(raan) * Math.cos(u) - Math.sin(raan) * Math.sin(u) * Math.cos(inc));
+    const y = radius * (Math.sin(raan) * Math.cos(u) + Math.cos(raan) * Math.sin(u) * Math.cos(inc));
+    const z = radius * Math.sin(u) * Math.sin(inc);
+    const theta = gmst(2440587.5 + now.getTime() / 86400000);
+    const xRot = x * Math.cos(theta) + y * Math.sin(theta);
+    const yRot = -x * Math.sin(theta) + y * Math.cos(theta);
+    const lng = Math.atan2(yRot, xRot) * 180 / Math.PI;
+    const lat = Math.atan2(z, Math.sqrt(xRot * xRot + yRot * yRot)) * 180 / Math.PI;
+    const alt = radius - 6371;
+    if (Number.isNaN(lat) || Number.isNaN(lng) || Math.abs(lat) > 90 || alt < 100 || alt > 50000) return null;
+    return {
+      lat: Math.round(lat * 10000) / 10000,
+      lng: Math.round((((lng + 540) % 360) - 180) * 10000) / 10000,
+      alt: Math.round(alt),
+    };
+  } catch {
+    return null;
+  }
+}
+
+let cachedTles = [];
+let cachedTleTime = 0;
+
+async function fetchTflCameras() {
+  try {
+    const data = await fetchJson('https://api.tfl.gov.uk/Place/Type/JamCam', { signal: AbortSignal.timeout(12000) });
+    return (data || []).map((camera) => {
+      const image = camera.additionalProperties?.find((prop) => prop.key === 'imageUrl');
+      const camId = camera.id?.replace('JamCams_', '') || '';
+      return {
+        id: `tfl-${camera.id}`,
+        lat: camera.lat,
+        lng: camera.lon,
+        name: camera.commonName || 'London JamCam',
+        city: 'London',
+        country: 'UK',
+        feed_url: image?.value || `https://s3-eu-west-1.amazonaws.com/jamcams.tfl.gov.uk/${camId}.jpg`,
+        source: 'TfL',
+      };
+    }).filter((camera) => camera.lat && camera.lng);
+  } catch {
+    return [];
+  }
+}
+
+async function fetchWsdotCameras() {
+  try {
+    const data = await fetchJson('https://data.wsdot.wa.gov/log/public/cameras.json', { signal: AbortSignal.timeout(10000) });
+    return (data || []).map((camera) => ({
+      id: `wsdot-${camera.CameraID}`,
+      lat: camera.CameraLocation?.Latitude,
+      lng: camera.CameraLocation?.Longitude,
+      name: camera.Title || 'WSDOT Camera',
+      city: 'Washington',
+      country: 'US',
+      feed_url: camera.ImageURL || '',
+      source: 'WSDOT',
+    })).filter((camera) => camera.lat && camera.lng && camera.feed_url);
+  } catch {
+    return [];
+  }
+}
+
+async function fetchCaltransCameras() {
+  const cameras = [];
+  for (const district of ['d03', 'd04', 'd05', 'd06', 'd07', 'd08', 'd10', 'd11', 'd12']) {
+    try {
+      const data = await fetchJson(`https://cwwp2.dot.ca.gov/data/${district}/cctv/cctvStatus${district.toUpperCase()}.json`, { signal: AbortSignal.timeout(8000) });
+      for (const camera of data?.data || []) {
+        const lat = Number.parseFloat(camera.location?.latitude);
+        const lng = Number.parseFloat(camera.location?.longitude);
+        const url = camera.cctv?.imageData?.static?.currentImageURL;
+        if (!lat || !lng || !url) continue;
+        cameras.push({
+          id: `cal-${district}-${cameras.length}`,
+          lat,
+          lng,
+          name: camera.location?.locationName || 'Caltrans',
+          city: 'California',
+          country: 'US',
+          feed_url: url,
+          source: 'Caltrans',
+        });
+      }
+    } catch {
+      // Continue with other districts.
+    }
+  }
+  return cameras;
+}
+
+async function fetchCanadaCameras() {
+  const cameras = [];
+  for (const [url, source, city] of [
+    ['https://511on.ca/api/v2/get/cameras', '511 Ontario', 'Ontario'],
+    ['https://511.alberta.ca/api/v2/get/cameras', 'Alberta 511', 'Alberta'],
+  ]) {
+    try {
+      const data = await fetchJson(url, { signal: AbortSignal.timeout(10000) });
+      for (const camera of data || []) {
+        const lat = camera.latitude ?? camera.Latitude;
+        const lng = camera.longitude ?? camera.Longitude;
+        const feedUrl = camera.imageUrl || camera.url || camera.Views?.[0]?.Url || '';
+        if (!lat || !lng) continue;
+        cameras.push({
+          id: `${source.toLowerCase().replace(/\W+/g, '-')}-${camera.id || camera.Id || cameras.length}`,
+          lat,
+          lng,
+          name: camera.description || camera.name || camera.Location || `${city} Camera`,
+          city,
+          country: 'Canada',
+          feed_url: feedUrl,
+          source,
+        });
+      }
+    } catch {
+      // Continue with other Canadian sources.
+    }
+  }
+  return cameras.filter((camera) => camera.lat && camera.lng);
+}
+
+async function fetchUsEastCameras() {
+  const cameras = [
+    { id: 'butler-oh-hamilton', lat: 39.3988617, lng: -84.5595353, name: 'Hamilton, OH', city: 'Hamilton', country: 'US', feed_url: 'https://gsccam.butlersheriff.org/axis-cgi/jpg/image.cgi', external_url: 'https://gsccam.butlersheriff.org/camera/index.html#/video', source: 'Butler County, OH' },
+    { id: 'butler-oh-129-747', lat: 39.381435, lng: -84.438423, name: 'OH-129 at 747', city: 'Butler County', country: 'US', feed_url: 'https://towercam.butlersheriff.org/axis-cgi/jpg/image.cgi', external_url: 'https://towercam.butlersheriff.org/aca/index.html#view', source: 'Butler County, OH' },
+    { id: 'cincinnati-cincyvision-yt', lat: 39.089101, lng: -84.527943, name: 'CincyVision YT', city: 'Cincinnati', country: 'US', external_url: 'https://www.youtube.com/@AaronPreslin/live', source: 'Cincinnati, OH' },
+  ];
+  try {
+    const data = await fetchJson('https://fl511.com/api/v2/cameras', { signal: AbortSignal.timeout(8000) });
+    for (const camera of (data || []).slice(0, 800)) {
+      if (!camera.latitude || !camera.longitude) continue;
+      cameras.push({
+        id: `fl-${cameras.length}`,
+        lat: camera.latitude,
+        lng: camera.longitude,
+        name: camera.description || 'FL-511 Camera',
+        city: 'Florida',
+        country: 'US',
+        feed_url: camera.imageUrl || '',
+        source: 'FL-511',
+      });
+    }
+  } catch {
+    // Static cameras still provide a usable layer.
+  }
+  return cameras.filter((camera) => camera.lat && camera.lng);
+}
+
+async function fetchUsCentralCameras() {
+  try {
+    const data = await fetchJson('https://www.travelmidwest.com/lmiga/cameraReport.json', { signal: AbortSignal.timeout(8000) });
+    return (data?.cameraReports || data || []).slice(0, 800).map((camera, index) => ({
+      id: `ildot-${index}`,
+      lat: camera.latitude,
+      lng: camera.longitude,
+      name: camera.cameraName || camera.description || 'IDOT Camera',
+      city: 'Illinois',
+      country: 'US',
+      feed_url: camera.imageUrl || camera.url || '',
+      source: 'IDOT',
+    })).filter((camera) => camera.lat && camera.lng);
+  } catch {
+    return [];
+  }
+}
+
+async function fetchEuropeCameras() {
+  try {
+    const data = await fetchJson('https://opendata.ndw.nu/cameras.json', { signal: AbortSignal.timeout(8000) });
+    return (data || []).slice(0, 1000).map((camera, index) => ({
+      id: `nl-${index}`,
+      lat: camera.lat,
+      lng: camera.lng,
+      name: camera.name || 'NL Camera',
+      city: 'Netherlands',
+      country: 'NL',
+      feed_url: camera.imageUrl || '',
+      source: 'RWS',
+    })).filter((camera) => camera.lat && camera.lng);
+  } catch {
+    return [];
+  }
+}
+
+async function fetchAsiaCameras() {
+  try {
+    const data = await fetchJson('https://api.data.gov.sg/v1/transport/traffic-images', { signal: AbortSignal.timeout(10000) });
+    return (data.items?.[0]?.cameras || []).map((camera) => ({
+      id: `sin-${camera.camera_id}`,
+      lat: camera.location?.latitude,
+      lng: camera.location?.longitude,
+      name: `Camera ${camera.camera_id}`,
+      city: 'Singapore',
+      country: 'Singapore',
+      feed_url: camera.image,
+      source: 'LTA Singapore',
+    })).filter((camera) => camera.lat && camera.lng && camera.feed_url);
+  } catch {
+    return [];
+  }
+}
+
+const flightRegions = [
+  { lat: 39.8, lon: -98.5, dist: 2000 },
+  { lat: 50.0, lon: 15.0, dist: 2000 },
+  { lat: 35.0, lon: 105.0, dist: 2000 },
+  { lat: -25.0, lon: 133.0, dist: 2000 },
+  { lat: 0.0, lon: 20.0, dist: 2500 },
+  { lat: -15.0, lon: -60.0, dist: 2000 },
+];
+
+const heliTypes = new Set(['R22', 'R44', 'R66', 'B06', 'B06T', 'B204', 'B205', 'B206', 'B212', 'B222', 'B230', 'B407', 'B412', 'B427', 'B429', 'B430', 'B505', 'B525', 'AS32', 'AS35', 'AS50', 'AS55', 'AS65', 'EC20', 'EC25', 'EC30', 'EC35', 'EC45', 'EC55', 'EC75', 'H125', 'H130', 'H135', 'H145', 'H155', 'H160', 'H175', 'H215', 'H225', 'S55', 'S58', 'S61', 'S64', 'S70', 'S76', 'S92', 'A109', 'A119', 'A139', 'A169', 'A189', 'AW09', 'MD52', 'MD60', 'MDHI', 'MD90', 'NOTR', 'B47G', 'HUEY', 'GAMA', 'CABR', 'EXE']);
+const privateJetTypes = new Set(['G150', 'G200', 'G280', 'GLEX', 'G500', 'G550', 'G600', 'G650', 'G700', 'GLF2', 'GLF3', 'GLF4', 'GLF5', 'GLF6', 'GL5T', 'GL7T', 'GV', 'GIV', 'CL30', 'CL35', 'CL60', 'BD70', 'BD10', 'C25A', 'C25B', 'C25C', 'C500', 'C510', 'C525', 'C550', 'C560', 'C56X', 'C680', 'C700', 'C750', 'E35L', 'E50P', 'E55P', 'E545', 'E550', 'FA50', 'FA7X', 'FA8X', 'F900', 'F2TH', 'LJ35', 'LJ40', 'LJ45', 'LJ60', 'LJ70', 'LJ75', 'PC12', 'PC24', 'TBM7', 'TBM8', 'TBM9', 'PRM1', 'SF50', 'EA50', 'VLJ']);
+const militaryIndicators = new Set(['C17', 'C5M', 'C130', 'C30J', 'KC10', 'KC46', 'KC35', 'E3CF', 'E3TF', 'E8A', 'B1B', 'B2', 'B52', 'F16', 'F15', 'F18', 'F22', 'F35', 'A10', 'F117', 'RC135', 'E6B', 'P8A', 'P3', 'MQ9', 'RQ4', 'U2', 'EP3', 'RC12', 'V22', 'CH47', 'UH60', 'AH64', 'AH1Z', 'MV22', 'EUFI', 'RFAL', 'TORD', 'TYP', 'GR4']);
+const airlineCodeRe = /^([A-Z]{3})\d/;
+
+async function fetchFlightRegion(region) {
+  try {
+    const data = await fetchJson(`https://api.adsb.lol/v2/lat/${region.lat}/lon/${region.lon}/dist/${region.dist}`, { signal: AbortSignal.timeout(12000) });
+    return data.ac || [];
+  } catch {
+    return [];
+  }
+}
+
+function classifyFlight(raw) {
+  const modelUpper = (raw.t || '').toUpperCase();
+  const flightStr = (raw.flight || '').trim().toUpperCase();
+  if (modelUpper === 'TWR' || raw.lat == null || raw.lon == null) return null;
+  const callsign = flightStr || raw.hex || 'UNKNOWN';
+  const altRaw = raw.alt_baro;
+  const altMeters = typeof altRaw === 'number' ? altRaw * 0.3048 : 0;
+  const airlineCode = airlineCodeRe.exec(callsign)?.[1] || '';
+  const isHeli = heliTypes.has(modelUpper);
+  let category = 'commercial';
+  if ((raw.dbFlags || 0) & 1 || militaryIndicators.has(modelUpper) || /^(RCH|KING|DUKE|EVAC|JAKE|REACH|CONVOY)\d/i.test(raw.flight || '')) category = 'military';
+  else if (privateJetTypes.has(modelUpper)) category = 'jet';
+  else if (!airlineCode && modelUpper && !['A319', 'A320', 'A321', 'A332', 'A333', 'A339', 'A343', 'A359', 'A388', 'B737', 'B738', 'B739', 'B38M', 'B39M', 'B752', 'B753', 'B763', 'B764', 'B772', 'B77L', 'B77W', 'B788', 'B789', 'B78X', 'E170', 'E175', 'E190', 'E195', 'CRJ7', 'CRJ9', 'AT43', 'AT72', 'DH8D'].includes(modelUpper)) category = 'private';
+  return {
+    callsign,
+    lat: Math.round(raw.lat * 100000) / 100000,
+    lng: Math.round(raw.lon * 100000) / 100000,
+    alt: Math.round(altMeters),
+    heading: Math.round(raw.track || 0),
+    speed_knots: typeof raw.gs === 'number' ? Math.round(raw.gs * 10) / 10 : null,
+    model: raw.t || 'Unknown',
+    icao24: raw.hex || '',
+    registration: raw.r || 'N/A',
+    squawk: raw.squawk || '',
+    airline_code: airlineCode,
+    aircraft_category: isHeli ? 'heli' : 'plane',
+    category,
+    grounded: typeof altRaw === 'number' && altRaw < 100,
+    nac_p: raw.nac_p,
+    type: 'flight',
+  };
+}
+
+function aggregateJamming(points, threshold) {
+  const grid = new Map();
+  for (const point of points) {
+    const gLat = Math.floor(point.lat / 2) * 2;
+    const gLng = Math.floor(point.lng / 2) * 2;
+    const key = `${gLat},${gLng}`;
+    if (!grid.has(key)) grid.set(key, { lat: gLat + 1, lng: gLng + 1, count: 0, total_nac_p: 0 });
+    const cell = grid.get(key);
+    cell.count++;
+    cell.total_nac_p += point.nac_p;
+  }
+  return Array.from(grid.values()).filter((zone) => zone.count >= 3).map((zone) => ({
+    lat: zone.lat,
+    lng: zone.lng,
+    severity: Math.round((1 - (zone.total_nac_p / zone.count) / threshold) * 100),
+    count: zone.count,
+  }));
+}
+
+const nuclearFacilities = [
+  { id: 'nuc-ua-zaporizhzhia', name: 'Zaporizhzhia NPP', city: 'Enerhodar', country: 'Ukraine', lat: 47.5113, lng: 34.5861, status: 'Active Conflict Zone', reactors: 6, capacityMW: 5700, owner: 'Energoatom (Russian controlled)' },
+  { id: 'nuc-ua-rivne', name: 'Rivne NPP', city: 'Varash', country: 'Ukraine', lat: 51.3278, lng: 25.8917, status: 'Operational', reactors: 4, capacityMW: 2835, owner: 'Energoatom' },
+  { id: 'nuc-ua-south', name: 'South Ukraine NPP', city: 'Yuzhnoukrainsk', country: 'Ukraine', lat: 47.8147, lng: 31.2186, status: 'Operational', reactors: 3, capacityMW: 2850, owner: 'Energoatom' },
+  { id: 'nuc-ua-khmelnytskyi', name: 'Khmelnytskyi NPP', city: 'Netishyn', country: 'Ukraine', lat: 50.3017, lng: 26.6489, status: 'Operational', reactors: 2, capacityMW: 2000, owner: 'Energoatom' },
+  { id: 'nuc-ua-chernobyl', name: 'Chernobyl (Decommissioned)', city: 'Pripyat', country: 'Ukraine', lat: 51.3891, lng: 30.0992, status: 'Decommissioned / Exclusion Zone', reactors: 4, capacityMW: 0, owner: 'State Agency' },
+  { id: 'nuc-fr-gravelines', name: 'Gravelines NPP', city: 'Gravelines', country: 'France', lat: 51.0125, lng: 2.1363, status: 'Operational', reactors: 6, capacityMW: 5460, owner: 'EDF' },
+  { id: 'nuc-fr-cattenom', name: 'Cattenom NPP', city: 'Cattenom', country: 'France', lat: 49.4158, lng: 6.2181, status: 'Operational', reactors: 4, capacityMW: 5200, owner: 'EDF' },
+  { id: 'nuc-fr-flamanville', name: 'Flamanville NPP', city: 'Flamanville', country: 'France', lat: 49.5386, lng: -1.8811, status: 'Operational', reactors: 3, capacityMW: 3960, owner: 'EDF' },
+  { id: 'nuc-fr-tricastin', name: 'Tricastin NPP', city: 'Saint-Paul-Trois-Chateaux', country: 'France', lat: 44.3322, lng: 4.7306, status: 'Operational', reactors: 4, capacityMW: 3660, owner: 'EDF' },
+  { id: 'nuc-uk-sizewell', name: 'Sizewell B NPP', city: 'Leiston', country: 'UK', lat: 52.2131, lng: 1.6186, status: 'Operational', reactors: 1, capacityMW: 1198, owner: 'EDF Energy' },
+  { id: 'nuc-uk-hinkley', name: 'Hinkley Point C', city: 'Somerset', country: 'UK', lat: 51.2081, lng: -3.1319, status: 'Under Construction', reactors: 2, capacityMW: 3200, owner: 'EDF Energy' },
+  { id: 'nuc-ru-kursk', name: 'Kursk NPP', city: 'Kurchatov', country: 'Russia', lat: 51.6742, lng: 35.6033, status: 'Operational', reactors: 4, capacityMW: 4000, owner: 'Rosenergoatom' },
+  { id: 'nuc-ru-leningrad', name: 'Leningrad NPP', city: 'Sosnovy Bor', country: 'Russia', lat: 59.8406, lng: 29.0433, status: 'Operational', reactors: 4, capacityMW: 4000, owner: 'Rosenergoatom' },
+  { id: 'nuc-ru-balakovo', name: 'Balakovo NPP', city: 'Balakovo', country: 'Russia', lat: 52.0911, lng: 47.9564, status: 'Operational', reactors: 4, capacityMW: 4000, owner: 'Rosenergoatom' },
+  { id: 'nuc-ru-rostov', name: 'Rostov NPP', city: 'Volgodonsk', country: 'Russia', lat: 47.5286, lng: 42.1014, status: 'Operational', reactors: 4, capacityMW: 4014, owner: 'Rosenergoatom' },
+  { id: 'nuc-us-palo-verde', name: 'Palo Verde', city: 'Tonopah', country: 'US', lat: 33.3886, lng: -112.8617, status: 'Operational', reactors: 3, capacityMW: 3937, owner: 'APS' },
+  { id: 'nuc-us-browns-ferry', name: 'Browns Ferry', city: 'Athens', country: 'US', lat: 34.7042, lng: -87.1186, status: 'Operational', reactors: 3, capacityMW: 3400, owner: 'TVA' },
+  { id: 'nuc-us-vogtle', name: 'Vogtle (AP1000)', city: 'Waynesboro', country: 'US', lat: 33.1417, lng: -81.7631, status: 'Operational', reactors: 4, capacityMW: 4500, owner: 'Georgia Power' },
+  { id: 'nuc-ca-bruce', name: 'Bruce Nuclear', city: 'Tiverton', country: 'Canada', lat: 44.3253, lng: -81.5997, status: 'Operational', reactors: 8, capacityMW: 6503, owner: 'Bruce Power' },
+  { id: 'nuc-cn-hongyanhe', name: 'Hongyanhe NPP', city: 'Dalian', country: 'China', lat: 39.7944, lng: 121.48, status: 'Operational', reactors: 6, capacityMW: 6366, owner: 'CGN' },
+  { id: 'nuc-cn-yangjiang', name: 'Yangjiang NPP', city: 'Yangjiang', country: 'China', lat: 21.7061, lng: 112.2597, status: 'Operational', reactors: 6, capacityMW: 6000, owner: 'CGN' },
+  { id: 'nuc-cn-tianwan', name: 'Tianwan NPP', city: 'Lianyungang', country: 'China', lat: 34.6869, lng: 119.4597, status: 'Operational', reactors: 6, capacityMW: 6050, owner: 'CNNC' },
+  { id: 'nuc-jp-fukushima', name: 'Fukushima Daiichi', city: 'Okuma', country: 'Japan', lat: 37.4211, lng: 141.0328, status: 'Destroyed / Decommissioning', reactors: 6, capacityMW: 0, owner: 'TEPCO' },
+  { id: 'nuc-kr-kori', name: 'Kori/Shin-Kori NPP', city: 'Busan', country: 'South Korea', lat: 35.3197, lng: 129.2894, status: 'Operational', reactors: 7, capacityMW: 7489, owner: 'KHNP' },
+  { id: 'nuc-ir-bushehr', name: 'Bushehr NPP', city: 'Bushehr', country: 'Iran', lat: 28.8292, lng: 50.8864, status: 'Operational', reactors: 1, capacityMW: 915, owner: 'AEOI' },
+  { id: 'nuc-ae-barakah', name: 'Barakah NPP', city: 'Al Dhafra', country: 'UAE', lat: 23.9686, lng: 52.2356, status: 'Operational', reactors: 4, capacityMW: 5380, owner: 'ENEC' },
+  { id: 'nuc-za-koeberg', name: 'Koeberg NPP', city: 'Cape Town', country: 'South Africa', lat: -33.6769, lng: 18.4344, status: 'Operational', reactors: 2, capacityMW: 1860, owner: 'Eskom' },
+];
+
 app.use(cors({
   origin(origin, callback) {
     if (!origin || allowedOrigins.has(origin)) {
@@ -715,36 +1102,179 @@ app.get('/api/maritime', cache(300000, async () => {
   return { ports, chokepoints, ships: [], total_ports: ports.length, total_chokepoints: chokepoints.length, total_ships: 0, timestamp: new Date().toISOString() };
 }));
 
-app.get('/api/flights', cache(300000, async () => ({
-  commercial_flights: [],
-  private_flights: [],
-  private_jets: [],
-  military_flights: [],
-  jamming_zones: [],
-  source: 'Firebase Functions migration placeholder',
-  timestamp: new Date().toISOString(),
-})));
+app.get('/api/flights', cache(45000, async () => {
+  const regionResults = await Promise.allSettled(flightRegions.map((region) => fetchFlightRegion(region)));
+  const allRaw = [];
+  const seenHex = new Set();
+  for (const result of regionResults) {
+    if (result.status !== 'fulfilled') continue;
+    for (const aircraft of result.value) {
+      const hex = (aircraft.hex || '').toLowerCase().trim();
+      if (hex && !seenHex.has(hex)) {
+        seenHex.add(hex);
+        allRaw.push(aircraft);
+      }
+    }
+  }
 
-app.get('/api/satellites', cache(3600000, async () => ({
-  satellites: [],
-  source: 'Firebase Functions migration placeholder',
-  timestamp: new Date().toISOString(),
-})));
+  const commercial = [];
+  const privateFlights = [];
+  const privateJets = [];
+  const military = [];
+  const gpsJamming = [];
+  for (const raw of allRaw) {
+    const flight = classifyFlight(raw);
+    if (!flight) continue;
+    if (typeof flight.nac_p === 'number' && flight.nac_p <= 4 && !flight.grounded) {
+      gpsJamming.push({ lat: flight.lat, lng: flight.lng, nac_p: flight.nac_p, callsign: flight.callsign });
+    }
+    if (flight.category === 'military') military.push(flight);
+    else if (flight.category === 'jet') privateJets.push(flight);
+    else if (flight.category === 'private') privateFlights.push(flight);
+    else commercial.push(flight);
+  }
 
-app.get('/api/cctv', cache(3600000, async () => ({
-  cameras: [],
-  total: 0,
-  region: 'all',
-  source: 'Firebase Functions migration placeholder',
-  timestamp: new Date().toISOString(),
-})));
+  return {
+    commercial_flights: commercial,
+    private_flights: privateFlights,
+    private_jets: privateJets,
+    military_flights: military,
+    gps_jamming: aggregateJamming(gpsJamming, 4),
+    total: allRaw.length,
+    timestamp: new Date().toISOString(),
+  };
+}));
+
+app.get('/api/satellites', cache(120000, async () => {
+  let source = 'memory-cache';
+  if (!cachedTles.length || Date.now() - cachedTleTime > 3600000) {
+    const data = await fetchJson('https://db.satnogs.org/api/tle/?format=json', {
+      signal: AbortSignal.timeout(15000),
+      headers: { Accept: 'application/json' },
+    }).catch(() => null);
+    if (Array.isArray(data)) {
+      const seen = new Set();
+      const fetched = [];
+      for (const item of data) {
+        const name = (item.tle0 || '').trim().replace(/^0\s+/, '');
+        if (name && item.tle1 && item.tle2 && !seen.has(name)) {
+          seen.add(name);
+          fetched.push({ name, line1: item.tle1.trim(), line2: item.tle2.trim() });
+        }
+      }
+      if (fetched.length) {
+        cachedTles = fetched;
+        cachedTleTime = Date.now();
+        source = 'satnogs-api';
+      }
+    }
+  }
+
+  let allSats = cachedTles;
+  if (!allSats.length) {
+    const fallback = '1 25544U 98067A   24146.40251785  .00015505  00000-0  27885-3 0  9997\n2 25544  51.6402 189.7042 0004381 334.8091 106.8778 15.50091157455243';
+    allSats = [{ name: 'ISS (FALLBACK)', line1: fallback.split('\n')[0], line2: fallback.split('\n')[1] }];
+    source = 'emergency-fallback';
+  }
+
+  const sampled = allSats.length > 2000 ? allSats.filter((_, i) => i % Math.ceil(allSats.length / 2000) === 0) : allSats;
+  const satellites = [];
+  for (const sat of sampled) {
+    const pos = propagateSatellite(sat.line1, sat.line2);
+    if (!pos) continue;
+    const classification = classifySatellite(sat.name);
+    satellites.push({
+      name: sat.name,
+      lat: pos.lat,
+      lng: pos.lng,
+      alt: pos.alt,
+      mission: classification.mission,
+      color: classification.color,
+      noradId: sat.line1.substring(2, 7).trim(),
+    });
+  }
+
+  return { satellites, total: satellites.length, source, raw_count: allSats.length, timestamp: new Date().toISOString() };
+}));
+
+app.get('/api/cctv', cache(300000, async (req) => {
+  const regionFetchers = {
+    uk: fetchTflCameras,
+    'us-west': async () => [...await fetchWsdotCameras(), ...await fetchCaltransCameras()],
+    'us-east': fetchUsEastCameras,
+    'us-central': fetchUsCentralCameras,
+    canada: fetchCanadaCameras,
+    europe: fetchEuropeCameras,
+    asia: fetchAsiaCameras,
+  };
+  const requestedRegion = req.query.region;
+  const regions = requestedRegion === 'all' || !requestedRegion
+    ? Object.keys(regionFetchers)
+    : String(requestedRegion).split(',').filter((region) => region in regionFetchers);
+  const results = await Promise.allSettled(regions.map((region) => regionFetchers[region]()));
+  const cameras = [];
+  const sources = {};
+  for (const result of results) {
+    if (result.status !== 'fulfilled') continue;
+    for (const camera of result.value) {
+      cameras.push(camera);
+      sources[camera.source] = (sources[camera.source] || 0) + 1;
+    }
+  }
+  return { cameras, total: cameras.length, sources, regions, timestamp: new Date().toISOString() };
+}));
 
 app.get('/api/infrastructure', cache(86400000, async () => ({
-  infrastructure: [],
-  total: 0,
-  source: 'Firebase Functions migration placeholder',
+  infrastructure: nuclearFacilities,
+  total: nuclearFacilities.length,
   timestamp: new Date().toISOString(),
 })));
+
+app.get('/api/region-dossier', cache(3600000, async (req) => {
+  const lat = Number.parseFloat(req.query.lat || '0');
+  const lng = Number.parseFloat(req.query.lng || '0');
+  const geoData = await fetchJson(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&zoom=5&addressdetails=1`, {
+    signal: AbortSignal.timeout(8000),
+    headers: { 'User-Agent': 'AutoNateAIIntel/1.0' },
+  }).catch(() => ({}));
+  const address = geoData.address || {};
+  const countryName = address.country || '';
+  const countryCode = address.country_code?.toUpperCase() || '';
+  const locationInfo = {
+    city: address.city || address.town || address.village || '',
+    state: address.state || address.region || '',
+    country: countryName,
+    country_code: countryCode,
+    display_name: geoData.display_name,
+  };
+  const [countryResult, wikiResult] = await Promise.allSettled([
+    countryCode ? fetchJson(`https://restcountries.com/v3.1/alpha/${countryCode}?fields=name,capital,population,area,region,subregion,languages,currencies,flag,flags,timezones`, { signal: AbortSignal.timeout(5000) }) : null,
+    (locationInfo.city || countryName) ? fetchJson(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(locationInfo.city || countryName)}`, { signal: AbortSignal.timeout(5000) }).catch(() => null) : null,
+  ]);
+  const countryData = countryResult.status === 'fulfilled' ? countryResult.value : null;
+  const wiki = wikiResult.status === 'fulfilled' ? wikiResult.value : null;
+  return {
+    coordinates: { lat, lng },
+    location: locationInfo,
+    country: countryData ? {
+      name: countryData.name?.common,
+      official_name: countryData.name?.official,
+      capital: countryData.capital?.[0],
+      population: countryData.population,
+      area: countryData.area,
+      region: countryData.region,
+      subregion: countryData.subregion,
+      languages: countryData.languages ? Object.values(countryData.languages) : [],
+      currencies: countryData.currencies ? Object.entries(countryData.currencies).map(([code, info]) => `${info.name} (${info.symbol || code})`) : [],
+      flag: countryData.flag,
+      flag_url: countryData.flags?.svg,
+      timezones: countryData.timezones,
+    } : null,
+    head_of_state: null,
+    wikipedia: wiki ? { title: wiki.title, extract: wiki.extract?.substring(0, 500), thumbnail: wiki.thumbnail?.source } : null,
+    timestamp: new Date().toISOString(),
+  };
+}));
 
 app.get('/api/balloons', cache(300000, async () => ({ balloons: [], total: 0, timestamp: new Date().toISOString() })));
 
