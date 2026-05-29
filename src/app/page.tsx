@@ -102,12 +102,12 @@ function EntityDetailModal({ entity, onClose }: { entity: any; onClose: () => vo
   const isPha = entity.type === 'hud_pha';
   const isSbir = entity.type === 'sbir_recipient';
   const rows = isPha
-    ? [['Participant Code', entity.participant_code], ['State', entity.state], ['Program Type', entity.program_type || 'Not specified'], ['Total Units', Number(entity.total_units || 0).toLocaleString()], ['Section 8 Units', Number(entity.section8_units || 0).toLocaleString()], ['USAspending Awards', Number(entity.award_count || 0).toLocaleString()], ['USAspending Total', money(entity.total_amount)], ['Latest Award', entity.latest_award_date || 'No matched award'], ['Spend Window', entity.spend_window_days ? `${Number(entity.spend_window_days).toLocaleString()} days` : 'Unknown'], ['Flow Score', entity.flow_score ?? 'N/A']]
+    ? [['Participant Code', entity.participant_code], ['State', entity.state], ['Program Type', entity.program_type || 'Not specified'], ['Total Units', Number(entity.total_units || 0).toLocaleString()], ['Section 8 Units', Number(entity.section8_units || 0).toLocaleString()], ['Annual HUD Funding', money(entity.annual_hud_funding)], ['Funding / Unit', money(entity.funding_per_unit)], ['USAspending Awards', Number(entity.award_count || 0).toLocaleString()], ['USAspending Total', money(entity.total_amount)], ['SBIR Awards 25mi', Number(entity.sbir_awards_25mi || 0).toLocaleString()], ['SBIR Companies 25mi', Number(entity.unique_sbir_companies_25mi || 0).toLocaleString()], ['Federal Investment 25mi', money(entity.total_federal_investment_25mi)], ['Latest Award', entity.latest_award_date || 'No matched award'], ['Opportunity Score', entity.pha_opportunity_score ?? entity.flow_score ?? 'N/A']]
     : isSbir
     ? [['City', `${entity.city || 'Unknown'}, ${entity.state_code || ''}`], ['Total Awarded', money(entity.total_awarded)], ['Recent Awarded', money(entity.recent_awarded)], ['Award Count', Number(entity.award_count || 0).toLocaleString()], ['Agencies', entity.agencies || 'Unknown'], ['Phases', entity.phases || 'Unknown'], ['First Award', entity.first_award_date || 'Unknown'], ['Latest Award', entity.latest_award_date || 'Unknown'], ['Active Years', Number(entity.active_award_years || 0).toLocaleString()], ['Website', entity.company_website || 'Unknown']]
     : [['Branch', entity.branch], ['Role', entity.role], ['Chamber', entity.chamber || 'N/A'], ['State', entity.state], ['Party', entity.party || 'Nonpartisan/Unknown'], ['District', entity.district ?? 'Statewide/N/A']];
   const bars = isPha
-    ? [['Recency', Number(entity.recency_score || 0), '#00E676'], ['Flow Score', Number(entity.flow_score || 0), '#00AEEF'], ['HUD OpFund', Number(entity.opfund_amount || 0), '#76FF03'], ['Award Count', Math.min(Number(entity.award_count || 0) * 8, 100), '#D4AF37']]
+    ? [['Recency', Number(entity.recency_score || 0), '#00E676'], ['Opportunity', Number(entity.pha_opportunity_score || entity.flow_score || 0), '#F2C94C'], ['SBIR 25mi', Math.min(Number(entity.unique_sbir_companies_25mi || 0), 100), '#B388FF'], ['Flow Score', Number(entity.flow_score || 0), '#00AEEF']]
     : isSbir
     ? [['Opportunity Score', Number(entity.opportunity_score || 0), '#F2C94C'], ['Recent Flow', Math.min(Number(entity.recent_awarded || 0) / 50000, 100), '#00E676'], ['Total Flow', Math.min(Number(entity.total_awarded || 0) / 250000, 100), '#00AEEF'], ['Awards', Math.min(Number(entity.award_count || 0) * 4, 100), '#B388FF']]
     : [['Influence Node', entity.branch === 'white_house' ? 100 : entity.branch === 'judicial' ? 80 : 60, entity.party === 'Republican' ? '#EB5757' : entity.party === 'Democrat' ? '#2F80ED' : '#FFFFFF']];
@@ -152,7 +152,7 @@ function EntityDetailModal({ entity, onClose }: { entity: any; onClose: () => vo
                 ))}
               </div>
             </div>
-            <div className="rounded border border-[var(--border-secondary)] p-3"><div className="hud-label mb-2">INTERPRETATION</div><p className="text-[10px] text-[var(--text-secondary)] leading-relaxed">{isPha ? 'This point is the HUD agency roster coordinate. Funding bars combine roster profile fields and matched USAspending totals, so historical backfills will make the USAspending side richer over time.' : isSbir ? `${entity.name} has received ${money(entity.total_awarded)} across ${Number(entity.award_count || 0).toLocaleString()} SBIR/STTR awards since 2010. The marker emphasizes recent award activity, total dollars, active award years, and whether the company appears to still have funded work in motion.` : 'Power Loop Edges draw party-colored links from congressional nodes to HUD flow centers for the same state, making oversight and funding geography visible together.'}</p></div>
+            <div className="rounded border border-[var(--border-secondary)] p-3"><div className="hud-label mb-2">INTERPRETATION</div><p className="text-[10px] text-[var(--text-secondary)] leading-relaxed">{isPha ? `This point now uses a funding profile model. Within 25 miles there are ${Number(entity.unique_sbir_companies_25mi || 0).toLocaleString()} SBIR/STTR companies and ${money(entity.total_federal_investment_25mi)} in combined nearby federal investment signal, giving the authority an implementation-ecosystem read instead of only a HUD total.` : isSbir ? `${entity.name} has received ${money(entity.total_awarded)} across ${Number(entity.award_count || 0).toLocaleString()} SBIR/STTR awards in the selected range. The marker emphasizes recent award activity, total dollars, active award years, and whether the company appears to still have funded work in motion.` : 'Power Loop Edges draw party-colored links from congressional nodes to HUD flow centers for the same state, making oversight and funding geography visible together.'}</p></div>
           </div>
         </div>
       </motion.div>
@@ -167,6 +167,7 @@ export default function Dashboard() {
 
   const [backendStatus, setBackendStatus] = useState<'connecting' | 'connected' | 'error'>('connecting');
   const [mapView, setMapView] = useState({ zoom: 2.5, latitude: 20 });
+  const [sbirYearRange, setSbirYearRange] = useState({ start: 2010, end: 2030 });
   const [flyToLocation, setFlyToLocation] = useState<{ lat: number; lng: number; ts: number } | null>(null);
   const [globalStats, setGlobalStats] = useState<any>(null);
   const mouseCoordsRef = useRef<{ lat: number; lng: number } | null>(null);
@@ -467,9 +468,11 @@ export default function Dashboard() {
       fetchEndpoint('/api/hud-pha-flows', d => ({ hud_phas: d.phas, hud_pha_awards: d.awards, hud_state_totals: d.state_totals }));
       layerFetchedRef.current.add('hud_pha_flows');
     }
-    if (activeLayers.sbir_recipients && !layerFetchedRef.current.has('sbir_recipients')) {
-      fetchEndpoint('/api/sbir-recipients', d => ({ sbir_recipients: d.recipients, sbir_state_totals: d.state_totals }));
-      layerFetchedRef.current.add('sbir_recipients');
+    const sbirFetchKey = `sbir_recipients_${sbirYearRange.start}_${sbirYearRange.end}`;
+    if (activeLayers.sbir_recipients && !layerFetchedRef.current.has(sbirFetchKey)) {
+      fetchEndpoint(`/api/sbir-recipients?start_year=${sbirYearRange.start}&end_year=${sbirYearRange.end}`, d => ({ sbir_recipients: d.recipients, sbir_state_totals: d.state_totals, sbir_year_range: d.year_range }));
+      Array.from(layerFetchedRef.current).filter(k => k.startsWith('sbir_recipients_')).forEach(k => layerFetchedRef.current.delete(k));
+      layerFetchedRef.current.add(sbirFetchKey);
     }
     if (activeLayers.federal_power && !layerFetchedRef.current.has('federal_power')) {
       fetchEndpoint('/api/federal-power', d => ({ federal_power: d.people }));
@@ -481,7 +484,7 @@ export default function Dashboard() {
       layerFetchedRef.current.add('gdelt');
     }
 
-  }, [activeLayers]);
+  }, [activeLayers, sbirYearRange, fetchEndpoint]);
 
   // ── LAYER-AWARE POLLING — only poll data for active layers ──
   useEffect(() => {
@@ -860,7 +863,7 @@ export default function Dashboard() {
       <div className="desktop-panel absolute left-5 top-20 bottom-24 w-72 flex flex-col gap-3 z-[200] pointer-events-none overflow-y-auto styled-scrollbar pr-1">
         {showLayers && (
           <>
-            <LayerPanel data={data} activeLayers={activeLayers} setActiveLayers={setActiveLayers} />
+            <LayerPanel data={data} activeLayers={activeLayers} setActiveLayers={setActiveLayers} sbirYearRange={sbirYearRange} setSbirYearRange={setSbirYearRange} />
             <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.5 }} className="glass-panel px-3 py-2.5 pointer-events-auto">
               <div className="grid grid-cols-5 gap-2 text-center">
                 <div><div className="hud-label">AIRCRAFT</div><div className="hud-value text-[10px] animate-data-pulse">{globalStats ? globalStats.flights.toLocaleString() : '0'}</div></div>
@@ -1044,7 +1047,7 @@ export default function Dashboard() {
                           <div><div className="hud-label" style={{fontSize:'6px'}}>NUC</div><div className="hud-value text-[9px]" style={{color:'#76FF03'}}>{(data.infrastructure?.length||0)}</div></div>
                         </div>
                       </div>
-                      <LayerPanel data={data} activeLayers={activeLayers} setActiveLayers={setActiveLayers} />
+                      <LayerPanel data={data} activeLayers={activeLayers} setActiveLayers={setActiveLayers} sbirYearRange={sbirYearRange} setSbirYearRange={setSbirYearRange} />
                       <div className="mt-2">
                         <ViewPresets onNavigate={(lat, lng, zoom) => { setFlyToLocation({ lat, lng, ts: Date.now() }); setMapView(v => ({ ...v, zoom })); setMobilePanel(null); }} />
                       </div>

@@ -972,7 +972,26 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
     const phas = Array.isArray(data.hud_phas) ? data.hud_phas : [];
     setGeo('hud-pha-flows', activeLayers.hud_pha_flows ? phas
       .filter((p: any) => Number.isFinite(Number(p.lng)) && Number.isFinite(Number(p.lat)))
-      .map((p: any) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [Number(p.lng), Number(p.lat)] }, properties: { ...p, type: 'hud_pha' } })) : []);
+      .map((p: any) => ({
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [Number(p.lng), Number(p.lat)] },
+        properties: {
+          ...p,
+          annual_hud_funding: p.funding_profile?.annual_hud_funding,
+          funding_per_unit: p.funding_profile?.funding_per_unit,
+          section8_ratio: p.funding_profile?.section8_ratio,
+          pha_opportunity_score: p.funding_profile?.opportunity_score,
+          sbir_awards_10mi: p.ecosystem_summary?.sbir_awards_10mi,
+          sbir_awards_25mi: p.ecosystem_summary?.sbir_awards_25mi,
+          sbir_awards_50mi: p.ecosystem_summary?.sbir_awards_50mi,
+          unique_sbir_companies_10mi: p.ecosystem_summary?.unique_sbir_companies_10mi,
+          unique_sbir_companies_25mi: p.ecosystem_summary?.unique_sbir_companies_25mi,
+          unique_sbir_companies_50mi: p.ecosystem_summary?.unique_sbir_companies_50mi,
+          total_federal_investment_25mi: p.ecosystem_summary?.total_federal_investment_25mi,
+          ecosystem_last_updated: p.ecosystem_summary?.last_updated,
+          type: 'hud_pha'
+        }
+      })) : []);
   }, [mapReady, data.hud_phas, activeLayers.hud_pha_flows, setGeo]);
 
   useEffect(() => {

@@ -579,6 +579,21 @@ function daysBetween(startDate, endDate) {
   return Math.round((end - start) / 86400000);
 }
 
+function distanceMiles(a, b) {
+  const lat1 = Number(a.lat);
+  const lng1 = Number(a.lng);
+  const lat2 = Number(b.lat);
+  const lng2 = Number(b.lng);
+  if (![lat1, lng1, lat2, lng2].every(Number.isFinite)) return Infinity;
+  const toRad = (v) => (v * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const s1 = Math.sin(dLat / 2);
+  const s2 = Math.sin(dLng / 2);
+  const h = s1 * s1 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * s2 * s2;
+  return 3958.8 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+}
+
 function decoratePhaForMap(pha, recentAwards = []) {
   const latestAward = recentAwards
     .filter((award) => award.participant_code && award.participant_code === pha.participant_code)
@@ -605,6 +620,103 @@ function decoratePhaForMap(pha, recentAwards = []) {
     flow_score,
     flow_bucket,
   };
+}
+
+async function recomputePhaFundingProfiles() {
+  const [phaSnap, awardSnap, sbirSnap] = await Promise.all([
+    db.collection('hud_phas').limit(5000).get(),
+    db.collection('hud_pha_awards').orderBy('start_date', 'desc').limit(2000).get(),
+    db.collection('sbir_recipients').limit(25000).get(),
+  ]);
+  const awards = awardSnap.docs.map((doc) => doc.data());
+  const sbirRecipients = sbirSnap.docs.map((doc) => doc.data()).filter((row) => Number.isFinite(Number(row.lat)) && Number.isFinite(Number(row.lng)));
+  let batch = db.batch();
+  let writes = 0;
+  const now = new Date().toISOString();
+  for (const doc of phaSnap.docs) {
+    const pha = doc.data();
+    const scored = decoratePhaForMap(pha, awards);
+    const phaAwards = awards.filter((award) => award.participant_code && award.participant_code === pha.participant_code);
+    const annualHudFunding = Number(pha.opfund_amount || 0) + Number(pha.capfund_amount || 0) + Number(scored.total_amount || pha.total_amount || 0);
+    const totalUnits = Number(pha.total_units || 0);
+    const profile = {
+      pha_code: pha.participant_code || pha.id,
+      fiscal_year: new Date().getUTCFullYear(),
+      total_units: totalUnits,
+      public_housing_units: Math.max(0, totalUnits - Number(pha.section8_units || 0)),
+      section8_units: Number(pha.section8_units || 0),
+      program_type: pha.program_type || '',
+      opfund_amount: Number(pha.opfund_amount || 0),
+      opfund_year: new Date().getUTCFullYear(),
+      opfund_source: 'HUD Public Housing Authority GIS roster',
+      capitalfund_amount: Number(pha.capfund_amount || 0),
+      capitalfund_year: new Date().getUTCFullYear(),
+      capitalfund_source: 'HUD Public Housing Authority GIS roster',
+      hcv_vouchers: Number(pha.section8_units || 0),
+      hcv_budget_authority: 0,
+      usaspending_award_count: Number(pha.award_count || phaAwards.length || 0),
+      usaspending_total_obligations: Number(pha.total_amount || 0),
+      latest_award_date: scored.latest_award_date || '',
+      congressional_district: '',
+      county_fips: '',
+      census_tract: '',
+      annual_hud_funding: annualHudFunding,
+      funding_per_unit: totalUnits ? annualHudFunding / totalUnits : 0,
+      section8_ratio: totalUnits ? Number(pha.section8_units || 0) / totalUnits : 0,
+      opportunity_score: Math.min(100, Math.round(
+        Math.min(annualHudFunding / 1000000, 35) +
+        Math.min(totalUnits / 100, 20) +
+        Math.min(Number(pha.section8_units || 0) / Math.max(totalUnits, 1) * 20, 20) +
+        Number(scored.flow_score || 0) * 0.25
+      )),
+      last_updated: now,
+      data_confidence: pha.participant_code ? 0.82 : 0.55,
+      match_strategy: ['HUD PHA code', 'HUD participant code', 'state', 'city'],
+    };
+    const nearby = { sbir_awards_10mi: 0, sbir_awards_25mi: 0, sbir_awards_50mi: 0, unique10: new Set(), unique25: new Set(), unique50: new Set(), investment25: 0 };
+    for (const recipient of sbirRecipients) {
+      if (recipient.state_code && pha.state && recipient.state_code !== pha.state) continue;
+      const dist = distanceMiles(pha, recipient);
+      if (dist <= 50) {
+        nearby.sbir_awards_50mi += Number(recipient.award_count || 0);
+        nearby.unique50.add(recipient.id || recipient.name);
+      }
+      if (dist <= 25) {
+        nearby.sbir_awards_25mi += Number(recipient.award_count || 0);
+        nearby.unique25.add(recipient.id || recipient.name);
+        nearby.investment25 += Number(recipient.total_awarded || 0);
+      }
+      if (dist <= 10) {
+        nearby.sbir_awards_10mi += Number(recipient.award_count || 0);
+        nearby.unique10.add(recipient.id || recipient.name);
+      }
+    }
+    const ecosystem = {
+      pha_code: profile.pha_code,
+      sbir_awards_10mi: nearby.sbir_awards_10mi,
+      sbir_awards_25mi: nearby.sbir_awards_25mi,
+      sbir_awards_50mi: nearby.sbir_awards_50mi,
+      unique_sbir_companies_10mi: nearby.unique10.size,
+      unique_sbir_companies_25mi: nearby.unique25.size,
+      unique_sbir_companies_50mi: nearby.unique50.size,
+      universities_25mi: 0,
+      community_colleges_25mi: 0,
+      hospitals_25mi: 0,
+      total_federal_investment_25mi: Math.round((nearby.investment25 + annualHudFunding) * 100) / 100,
+      last_updated: now,
+      data_confidence: profile.data_confidence,
+    };
+    batch.set(db.collection('pha_funding_profile').doc(`${profile.pha_code}-${profile.fiscal_year}`), profile, { merge: true });
+    batch.set(db.collection('pha_ecosystem_summary').doc(profile.pha_code), ecosystem, { merge: true });
+    writes += 2;
+    if (writes >= 440) {
+      await batch.commit();
+      batch = db.batch();
+      writes = 0;
+    }
+  }
+  if (writes) await batch.commit();
+  return { profiles: phaSnap.size, awards: awards.length, sbir_recipients: sbirRecipients.length };
 }
 
 async function recomputeHudPhaScores() {
@@ -1582,14 +1694,24 @@ app.get('/api/hud-pha-flows', cache(300000, async (req) => {
   const state = req.query.state ? String(req.query.state).toUpperCase() : '';
   let phaQuery = db.collection('hud_phas').orderBy('total_amount', 'desc').limit(5000);
   if (state && stateCodes.has(state)) phaQuery = db.collection('hud_phas').where('state', '==', state).orderBy('total_amount', 'desc').limit(5000);
-  const [phaSnap, awardSnap] = await Promise.all([
+  const [phaSnap, awardSnap, profileSnap, ecosystemSnap] = await Promise.all([
     phaQuery.get(),
     db.collection('hud_pha_awards').orderBy('start_date', 'desc').limit(250).get(),
+    db.collection('pha_funding_profile').where('fiscal_year', '==', new Date().getUTCFullYear()).limit(5000).get(),
+    db.collection('pha_ecosystem_summary').limit(5000).get(),
   ]);
   const awards = awardSnap.docs.map((doc) => doc.data()).filter((award) => !state || award.recipient_state === state);
+  const profiles = new Map(profileSnap.docs.map((doc) => [doc.data().pha_code, doc.data()]));
+  const ecosystems = new Map(ecosystemSnap.docs.map((doc) => [doc.data().pha_code, doc.data()]));
   const phas = phaSnap.docs.map((doc) => {
     const pha = doc.data();
-    return typeof pha.flow_score === 'number' && pha.flow_bucket ? pha : decoratePhaForMap(pha, awards);
+    const decorated = typeof pha.flow_score === 'number' && pha.flow_bucket ? pha : decoratePhaForMap(pha, awards);
+    const code = decorated.participant_code || decorated.id;
+    return {
+      ...decorated,
+      funding_profile: profiles.get(code) || null,
+      ecosystem_summary: ecosystems.get(code) || null,
+    };
   });
   const stateTotals = {};
   for (const pha of phas) {
@@ -1611,13 +1733,55 @@ app.get('/api/hud-pha-flows', cache(300000, async (req) => {
 
 app.get('/api/sbir-recipients', cache(300000, async (req) => {
   const state = req.query.state ? String(req.query.state).toUpperCase() : '';
+  const startYear = Math.max(2010, Math.min(2030, Number(req.query.start_year || 2010)));
+  const endYear = Math.max(startYear, Math.min(2030, Number(req.query.end_year || 2030)));
   const limit = Math.min(Number(req.query.limit || 20000), 25000);
   let query = db.collection('sbir_recipients').orderBy('total_awarded', 'desc').limit(limit);
   if (state && stateCodes.has(state)) {
     query = db.collection('sbir_recipients').where('state_code', '==', state).orderBy('total_awarded', 'desc').limit(limit);
   }
   const snap = await query.get();
-  const recipients = snap.docs.map((doc) => doc.data());
+  const recipients = snap.docs.map((doc) => {
+    const recipient = doc.data();
+    const awardsByYear = recipient.awards_by_year || {};
+    const amountByYear = recipient.amount_by_year || {};
+    const hasYearRollup = Object.keys(awardsByYear).length > 0 || Object.keys(amountByYear).length > 0;
+    if (!hasYearRollup) return recipient;
+    let awardCount = 0;
+    let totalAwarded = 0;
+    let firstAwardDate = '';
+    let latestAwardDate = '';
+    for (let year = startYear; year <= endYear; year++) {
+      awardCount += Number(awardsByYear[String(year)] || 0);
+      totalAwarded += Number(amountByYear[String(year)] || 0);
+      if (recipient.first_award_by_year?.[String(year)] && (!firstAwardDate || recipient.first_award_by_year[String(year)] < firstAwardDate)) {
+        firstAwardDate = recipient.first_award_by_year[String(year)];
+      }
+      if (recipient.latest_award_by_year?.[String(year)] && recipient.latest_award_by_year[String(year)] > latestAwardDate) {
+        latestAwardDate = recipient.latest_award_by_year[String(year)];
+      }
+    }
+    const daysSinceLatest = latestAwardDate ? Math.max(0, Math.round((Date.now() - new Date(latestAwardDate).getTime()) / 86400000)) : 99999;
+    const recencyScore = Math.max(0, Math.min(100, 100 - (daysSinceLatest / 1095) * 100));
+    const opportunityScore = Math.round(
+      Math.min(totalAwarded / 250000, 45) +
+      Math.min(awardCount * 1.6, 25) +
+      Math.min(Object.entries(awardsByYear).filter(([year, count]) => Number(year) >= startYear && Number(year) <= endYear && Number(count) > 0).length * 2, 18) +
+      recencyScore * 0.18
+    );
+    return {
+      ...recipient,
+      award_count: awardCount,
+      total_awarded: Math.round(totalAwarded * 100) / 100,
+      recent_awarded: totalAwarded,
+      first_award_date: firstAwardDate,
+      latest_award_date: latestAwardDate,
+      recency_score: Math.round(recencyScore),
+      opportunity_score: Math.min(100, opportunityScore),
+      activity_bucket: recencyScore >= 80 ? 'hot' : recencyScore >= 45 ? 'warm' : recencyScore >= 10 ? 'steady' : 'dormant',
+      year_range: `${startYear}-${endYear}`,
+    };
+  }).filter((recipient) => Number(recipient.award_count || 0) > 0);
   const stateTotals = {};
   for (const recipient of recipients) {
     const code = recipient.state_code || 'NA';
@@ -1638,7 +1802,9 @@ app.get('/api/sbir-recipients', cache(300000, async (req) => {
     recipients,
     state_totals: Object.values(stateTotals),
     total_recipients: recipients.length,
-    since: '2010-01-01',
+    since: `${startYear}-01-01`,
+    through: `${endYear}-12-31`,
+    year_range: { start_year: startYear, end_year: endYear },
     source: 'SBIR.gov bulk awards via Public Funding Intelligence',
     timestamp: new Date().toISOString(),
   };
@@ -1691,6 +1857,16 @@ app.all('/api/hud-pha-flows/recompute', async (_req, res) => {
   } catch (err) {
     console.error('[AutoNateAI Intel Functions] HUD PHA score recompute failed', err);
     res.status(500).json({ error: 'HUD PHA score recompute failed', detail: err instanceof Error ? err.message : 'Unknown error' });
+  }
+});
+
+app.all('/api/hud-pha-flows/recompute-funding-profiles', async (_req, res) => {
+  try {
+    const result = await recomputePhaFundingProfiles();
+    res.json({ result, timestamp: new Date().toISOString() });
+  } catch (err) {
+    console.error('[AutoNateAI Intel Functions] HUD PHA funding profile recompute failed', err);
+    res.status(500).json({ error: 'HUD PHA funding profile recompute failed', detail: err instanceof Error ? err.message : 'Unknown error' });
   }
 });
 

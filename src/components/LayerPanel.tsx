@@ -14,6 +14,8 @@ interface LayerPanelProps {
   data: any;
   activeLayers: any;
   setActiveLayers: React.Dispatch<React.SetStateAction<any>>;
+  sbirYearRange?: { start: number; end: number };
+  setSbirYearRange?: React.Dispatch<React.SetStateAction<{ start: number; end: number }>>;
 }
 
 const LAYER_GROUPS = [
@@ -83,7 +85,7 @@ const LAYER_GROUPS = [
 // Flat list for backward compat
 const ALL_LAYERS = LAYER_GROUPS.flatMap(g => g.layers);
 
-function LayerPanel({ data, activeLayers, setActiveLayers }: LayerPanelProps) {
+function LayerPanel({ data, activeLayers, setActiveLayers, sbirYearRange, setSbirYearRange }: LayerPanelProps) {
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>(() => {
     const initial: Record<string, boolean> = {};
     LAYER_GROUPS.forEach(g => { initial[g.label] = true; });
@@ -118,6 +120,7 @@ function LayerPanel({ data, activeLayers, setActiveLayers }: LayerPanelProps) {
       return next;
     });
   };
+  const yearOptions = Array.from({ length: 21 }, (_, i) => 2010 + i);
 
   return (
     <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.3, duration: 0.6 }} className="glass-panel p-3 pointer-events-auto">
@@ -195,8 +198,8 @@ function LayerPanel({ data, activeLayers, setActiveLayers }: LayerPanelProps) {
                         const isActive = activeLayers[layer.key];
                         const count = getCount(layer.dataKey);
                         return (
+                          <div key={layer.key}>
                           <button
-                            key={layer.key}
                             onClick={() => toggle(layer.key)}
                             className={`w-full flex items-center gap-2.5 px-2 py-[5px] rounded-md transition-all duration-200 group ${
                               isActive
@@ -232,6 +235,37 @@ function LayerPanel({ data, activeLayers, setActiveLayers }: LayerPanelProps) {
                             {/* Toggle switch */}
                             <div className={`layer-toggle ${isActive ? 'active' : ''}`} />
                           </button>
+                          {layer.key === 'sbir_recipients' && setSbirYearRange && sbirYearRange && (
+                            <div className="ml-6 mr-2 mb-2 grid grid-cols-2 gap-2">
+                              <label className="text-[8px] font-mono text-[var(--text-muted)] tracking-widest">
+                                START
+                                <select
+                                  value={sbirYearRange.start}
+                                  onChange={(e) => {
+                                    const start = Number(e.target.value);
+                                    setSbirYearRange((prev) => ({ start, end: Math.max(start, prev.end) }));
+                                  }}
+                                  className="mt-1 w-full bg-black/40 border border-[var(--border-secondary)] rounded px-2 py-1 text-[10px] text-[var(--text-primary)]"
+                                >
+                                  {yearOptions.map((year) => <option key={year} value={year}>{year}</option>)}
+                                </select>
+                              </label>
+                              <label className="text-[8px] font-mono text-[var(--text-muted)] tracking-widest">
+                                END
+                                <select
+                                  value={sbirYearRange.end}
+                                  onChange={(e) => {
+                                    const end = Number(e.target.value);
+                                    setSbirYearRange((prev) => ({ start: Math.min(prev.start, end), end }));
+                                  }}
+                                  className="mt-1 w-full bg-black/40 border border-[var(--border-secondary)] rounded px-2 py-1 text-[10px] text-[var(--text-primary)]"
+                                >
+                                  {yearOptions.map((year) => <option key={year} value={year}>{year}</option>)}
+                                </select>
+                              </label>
+                            </div>
+                          )}
+                          </div>
                         );
                       })}
                     </div>
