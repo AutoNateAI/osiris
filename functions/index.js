@@ -629,6 +629,20 @@ function normalizePointOrg(input) {
   };
 }
 
+function normalizeOrgName(name = '') {
+  return String(name)
+    .toLowerCase()
+    .replace(/&/g, ' and ')
+    .replace(/\b(inc|incorporated|llc|corp|corporation|corporate|company|co|the|of|and)\b/g, ' ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function significantNameTokens(name = '') {
+  return normalizeOrgName(name).split(' ').filter((token) => token.length > 2);
+}
+
 async function writeCollection(collectionName, records) {
   let batch = db.batch();
   let writes = 0;
@@ -647,6 +661,24 @@ async function writeCollection(collectionName, records) {
 
 async function clearCollection(collectionName, limit = 10000) {
   const snap = await db.collection(collectionName).limit(limit).get();
+  let batch = db.batch();
+  let writes = 0;
+  for (const doc of snap.docs) {
+    batch.delete(doc.ref);
+    writes++;
+    if (writes >= 450) {
+      await batch.commit();
+      batch = db.batch();
+      writes = 0;
+    }
+  }
+  if (writes) await batch.commit();
+  return snap.size;
+}
+
+async function clearCollectionWhereState(collectionName, state, limit = 10000) {
+  if (!stateCodes.has(state)) return 0;
+  const snap = await db.collection(collectionName).where('state', '==', state).limit(limit).get();
   let batch = db.batch();
   let writes = 0;
   for (const doc of snap.docs) {
@@ -1220,6 +1252,138 @@ async function fetchHealthOrgs(limit = 2000, state = '') {
     if (features.length < pageSize) break;
   }
   return records.slice(0, limit);
+}
+
+async function fetchHospitalOrgs(limit = 1000, state = '') {
+  const records = [];
+  const pageSize = Math.min(500, limit);
+  for (let offset = 0; offset < Math.min(limit, 5000); offset += pageSize) {
+    const params = new URLSearchParams({
+      limit: String(pageSize),
+      offset: String(offset),
+    });
+    if (state && stateCodes.has(state)) {
+      params.set('conditions[0][property]', 'state');
+      params.set('conditions[0][operator]', '=');
+      params.set('conditions[0][value]', state);
+    }
+    const data = await fetchJson(`https://data.cms.gov/provider-data/api/1/datastore/query/xubh-q36u/0?${params.toString()}`, { signal: AbortSignal.timeout(20000) });
+    const results = data.results || [];
+    for (const row of results) {
+      const code = String(row.state || '').toUpperCase();
+      const fallback = fallbackCoordsForState(code);
+      records.push(normalizePointOrg({
+        id: `health-cms-${row.facility_id}`,
+        name: row.facility_name,
+        category: 'health',
+        subtype: row.hospital_type || 'Hospital',
+        city: row.citytown,
+        state: code,
+        county: row.countyparish,
+        lat: row.citytown === fallback.city.toUpperCase() ? fallback.lat : undefined,
+        lng: row.citytown === fallback.city.toUpperCase() ? fallback.lng : undefined,
+        source: 'CMS Hospital General Information',
+        source_id: String(row.facility_id || ''),
+        phone: row.telephone_number,
+        data_confidence: 72,
+        extra: {
+          facility_type: row.hospital_type || 'Hospital',
+          hospital_ownership: row.hospital_ownership || '',
+          emergency_services: row.emergency_services || '',
+          hospital_overall_rating: row.hospital_overall_rating || '',
+          address: row.address || '',
+          cms_facility_id: row.facility_id || '',
+          award_match_names: /spectrum health/i.test(row.facility_name || '') ? ['COREWELL HEALTH', 'SPECTRUM HEALTH'] : [],
+        },
+      }));
+    }
+    if (results.length < pageSize) break;
+  }
+  return records.slice(0, limit);
+}
+
+async function searchAwardAggregates({ terms, agencyName = '', limitPerTerm = 100, maxPages = 3, state = '' }) {
+  const awards = new Map();
+  for (const term of terms) {
+    for (let page = 1; page <= maxPages; page++) {
+      const filters = {
+        award_type_codes: ['02', '03', '04', '05'],
+        time_period: [{ start_date: '2010-01-01', end_date: new Date().toISOString().slice(0, 10) }],
+        recipient_search_text: [term],
+      };
+      if (agencyName) filters.agencies = [{ type: 'awarding', tier: 'toptier', name: agencyName }];
+      if (state && stateCodes.has(state)) filters.recipient_locations = [{ country: 'USA', state }];
+      const body = {
+        filters,
+        fields: ['Award ID', 'Recipient Name', 'Recipient City', 'Recipient State', 'Recipient ZIP Code', 'Start Date', 'End Date', 'Award Amount', 'Awarding Agency', 'Funding Agency', 'CFDA Program Title'],
+        sort: 'Award Amount',
+        order: 'desc',
+        limit: limitPerTerm,
+        page,
+      };
+      const data = await fetchJson('https://api.usaspending.gov/api/v2/search/spending_by_award/', {
+        method: 'POST',
+        signal: AbortSignal.timeout(25000),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      for (const row of data.results || []) {
+        const name = row['Recipient Name'] || '';
+        if (!name) continue;
+        const key = normalizeOrgName(name);
+        if (!key) continue;
+        const agg = awards.get(key) || {
+          recipient_name: name,
+          award_count: 0,
+          total_obligations: 0,
+          latest_award_date: '',
+          awarding_agencies: [],
+          programs: [],
+        };
+        agg.award_count += 1;
+        agg.total_obligations += Number(row['Award Amount'] || 0);
+        if ((row['Start Date'] || '') > (agg.latest_award_date || '')) agg.latest_award_date = row['Start Date'];
+        agg.awarding_agencies = [...new Set([...agg.awarding_agencies, row['Awarding Agency'] || row['Funding Agency']].filter(Boolean))].slice(0, 10);
+        agg.programs = [...new Set([...agg.programs, row['CFDA Program Title']].filter(Boolean))].slice(0, 10);
+        awards.set(key, agg);
+      }
+      if (!data.results?.length || !data.page_metadata?.hasNext) break;
+    }
+  }
+  return awards;
+}
+
+function attachAwardAggregates(orgs, awards, options = {}) {
+  return orgs.map((org) => {
+    const names = [org.name, ...(Array.isArray(org.award_match_names) ? org.award_match_names : [])].filter(Boolean);
+    const keys = names.map(normalizeOrgName).filter(Boolean);
+    const key = keys[0] || '';
+    let best = keys.map((candidate) => awards.get(candidate)).find(Boolean);
+    if (!best && options.allowPartial !== false) {
+      const orgTokens = new Set(significantNameTokens(org.name));
+      for (const [awardKey, award] of awards.entries()) {
+        const awardTokens = significantNameTokens(award.recipient_name);
+        const shared = awardTokens.filter((token) => orgTokens.has(token));
+        const parentSystemMatch = awardTokens.length >= 2 && awardTokens.every((token) => orgTokens.has(token));
+        const strongOverlap = parentSystemMatch || (shared.length >= Math.min(3, awardTokens.length) && shared.length >= Math.min(3, orgTokens.size));
+        if (strongOverlap && awardKey.length >= 8 && key.length >= 8 && (awardKey.includes(key) || key.includes(awardKey) || shared.length >= 3)) {
+          best = award;
+          break;
+        }
+      }
+    }
+    if (!best) return org;
+    return {
+      ...org,
+      award_count: best.award_count,
+      total_obligations: Math.round(best.total_obligations * 100) / 100,
+      latest_award_date: best.latest_award_date,
+      awarding_agencies: best.awarding_agencies,
+      programs: best.programs,
+      award_recipient_name: best.recipient_name,
+      funding_enriched: true,
+    };
+  });
 }
 
 async function searchUsaspendingCapability({ category, keyword, agencyName = '', limit = 500, maxPages = 5, state = '' }) {
@@ -2435,10 +2599,18 @@ app.all('/api/education-orgs/update', async (req, res) => {
   try {
     const state = req.query.state ? String(req.query.state).toUpperCase() : '';
     const limit = Math.min(Number(req.query.limit || req.body?.limit || 1000), 5000);
-    const orgs = await fetchEducationOrgs(limit, state);
-    if (!state) await clearCollection('education_orgs');
+    const awardTerms = state === 'MI'
+      ? ['grand rapids community college', 'university of michigan', 'michigan state university', 'wayne state university', 'college', 'university']
+      : ['community college', 'university', 'college'];
+    const [baseOrgs, awards] = await Promise.all([
+      fetchEducationOrgs(limit, state),
+      searchAwardAggregates({ terms: awardTerms, limitPerTerm: 100, maxPages: 3, state }),
+    ]);
+    const orgs = attachAwardAggregates(baseOrgs, awards, { allowPartial: false });
+    if (state) await clearCollectionWhereState('education_orgs', state);
+    else await clearCollection('education_orgs');
     await writeCollection('education_orgs', orgs);
-    res.json({ inserted_or_updated: orgs.length, state: state || 'ALL', timestamp: new Date().toISOString() });
+    res.json({ inserted_or_updated: orgs.length, funding_enriched: orgs.filter((org) => org.funding_enriched).length, state: state || 'ALL', timestamp: new Date().toISOString() });
   } catch (err) {
     console.error('[AutoNateAI Intel Functions] Education org update failed', err);
     res.status(500).json({ error: 'Education org update failed', detail: err instanceof Error ? err.message : 'Unknown error' });
@@ -2463,10 +2635,21 @@ app.all('/api/health-orgs/update', async (req, res) => {
   try {
     const state = req.query.state ? String(req.query.state).toUpperCase() : '';
     const limit = Math.min(Number(req.query.limit || req.body?.limit || 2000), 10000);
-    const orgs = await fetchHealthOrgs(limit, state);
-    if (!state) await clearCollection('health_orgs');
+    const hospitalLimit = Math.max(100, Math.floor(limit / 2));
+    const healthCenterLimit = Math.max(100, limit - hospitalLimit);
+    const awardTerms = state === 'MI'
+      ? ['corewell health', 'spectrum health', 'mary free bed', 'hospital', 'health']
+      : ['hospital', 'health', 'medical center'];
+    const [healthCenters, hospitals, awards] = await Promise.all([
+      fetchHealthOrgs(healthCenterLimit, state),
+      fetchHospitalOrgs(hospitalLimit, state),
+      searchAwardAggregates({ terms: awardTerms, agencyName: 'Department of Health and Human Services', limitPerTerm: 100, maxPages: 3, state }),
+    ]);
+    const orgs = attachAwardAggregates([...healthCenters, ...hospitals], awards, { allowPartial: true });
+    if (state) await clearCollectionWhereState('health_orgs', state);
+    else await clearCollection('health_orgs');
     await writeCollection('health_orgs', orgs);
-    res.json({ inserted_or_updated: orgs.length, state: state || 'ALL', timestamp: new Date().toISOString() });
+    res.json({ inserted_or_updated: orgs.length, hospitals: hospitals.length, health_centers: healthCenters.length, funding_enriched: orgs.filter((org) => org.funding_enriched).length, state: state || 'ALL', timestamp: new Date().toISOString() });
   } catch (err) {
     console.error('[AutoNateAI Intel Functions] Health org update failed', err);
     res.status(500).json({ error: 'Health org update failed', detail: err instanceof Error ? err.message : 'Unknown error' });
