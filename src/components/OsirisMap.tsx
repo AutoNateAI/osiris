@@ -262,12 +262,12 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
       }, paint: { 'text-color': '#76FF03', 'text-halo-color': '#000', 'text-halo-width': 1, 'text-opacity': 0.7 }});
 
       map.addLayer({ id: 'hud-pha-bubbles', type: 'circle', source: 'hud-pha-flows', paint: {
-        'circle-radius': ['interpolate',['linear'],['sqrt',['max',['get','total_amount'],1]], 1000000,5, 100000000,15, 1000000000,28],
+        'circle-radius': ['interpolate',['linear'],['sqrt',['max',['+',['get','total_amount'],['*',['get','total_units'],10000]],1]], 1,3, 1000000,7, 100000000,18, 1000000000,30],
         'circle-color': '#00AEEF', 'circle-opacity': 0.28,
         'circle-stroke-width': 2, 'circle-stroke-color': '#FFFFFF', 'circle-stroke-opacity': 0.55,
       }});
       map.addLayer({ id: 'hud-pha-label', type: 'symbol', source: 'hud-pha-flows', minzoom: 4, layout: {
-        'text-field': ['concat', ['get','state'], ' HUD'], 'text-size': 10, 'text-font': ['Open Sans Bold'],
+        'text-field': ['get','name'], 'text-size': 9, 'text-font': ['Open Sans Bold'],
         'text-offset': [0, 1.8], 'text-allow-overlap': false,
       }, paint: { 'text-color': '#E6F7FF', 'text-halo-color': '#001018', 'text-halo-width': 1 }});
 
@@ -873,8 +873,8 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
 
   useEffect(() => {
     if (!mapReady) return;
-    setGeo('hud-pha-flows', activeLayers.hud_pha_flows && data.hud_state_totals ? data.hud_state_totals.map((s: any) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [s.lng, s.lat] }, properties: { state: s.state, total_amount: s.total_amount, pha_count: s.pha_count, award_count: s.award_count } })) : []);
-  }, [mapReady, data.hud_state_totals, activeLayers.hud_pha_flows, setGeo]);
+    setGeo('hud-pha-flows', activeLayers.hud_pha_flows && data.hud_phas ? data.hud_phas.map((p: any) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [p.lng, p.lat] }, properties: { state: p.state, name: p.name, participant_code: p.participant_code, total_amount: p.total_amount || 0, award_count: p.award_count || 0, program_type: p.program_type, total_units: p.total_units || 0 } })) : []);
+  }, [mapReady, data.hud_phas, activeLayers.hud_pha_flows, setGeo]);
 
   useEffect(() => {
     if (!mapReady) return;

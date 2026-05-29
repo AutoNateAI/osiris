@@ -549,6 +549,7 @@ function normalizeHudAward(row) {
   return {
     id: md5(`hud:${awardId}:${row['Start Date'] || ''}:${row['Award Amount'] || 0}`),
     award_id: awardId,
+    participant_code: String(awardId).slice(0, 5).toUpperCase(),
     recipient_name: row['Recipient Name'] || 'Unknown PHA',
     recipient_city: row['Recipient City'] || '',
     recipient_state: state,
@@ -568,6 +569,59 @@ function normalizeHudAward(row) {
     source: 'USAspending',
     updated_at: new Date().toISOString(),
   };
+}
+
+async function fetchHudPhaRoster() {
+  const data = await fetchJson('https://opendata.arcgis.com/api/v3/datasets/3d6ef39026b94eb59ddb7ce28eb0b692_0/downloads/data?format=geojson&spatialRefId=4326&where=1%3D1', {
+    signal: AbortSignal.timeout(30000),
+  });
+  return (data.features || []).map((feature) => {
+    const props = feature.properties || {};
+    const [lng, lat] = feature.geometry?.coordinates || [null, null];
+    const code = props.PARTICIPANT_CODE || String(props.OBJECTID || crypto.randomUUID());
+    return {
+      id: `hud-${code}`,
+      participant_code: code,
+      name: props.FORMAL_PARTICIPANT_NAME || 'Unknown PHA',
+      state: code.slice(0, 2),
+      city: props.STD_CITY || '',
+      address: props.STD_ADDR || '',
+      zip: props.STD_ZIP5 || '',
+      email: props.HA_EMAIL_ADDR_TEXT || props.EXEC_DIR_EMAIL || '',
+      phone: props.HA_PHN_NUM || props.EXEC_DIR_PHONE || '',
+      program_type: props.HA_PROGRAM_TYPE || '',
+      section8_units: Number(props.SECTION8_UNITS_CNT || 0),
+      total_units: Number(props.PHA_TOTAL_UNITS || props.TOTAL_UNITS || 0),
+      occupied_units: Number(props.TOTAL_OCCUPIED || 0),
+      opfund_amount: Number(props.OPFUND_AMNT || 0),
+      capfund_amount: Number(props.CAPFUND_AMNT || 0),
+      ross_amount: Number(props.ROSS_AMNT || 0),
+      fss_amount: Number(props.FSS_AMNT || 0),
+      hud_profile_spending_per_month: Number(props.SPENDING_PER_MONTH || 0),
+      total_amount: 0,
+      award_count: 0,
+      programs: {},
+      lat: typeof lat === 'number' ? lat : centroidForState(code.slice(0, 2)).lat,
+      lng: typeof lng === 'number' ? lng : centroidForState(code.slice(0, 2)).lng,
+      source: 'HUD Public Housing Authorities GIS',
+      roster_updated_at: new Date().toISOString(),
+    };
+  }).filter((pha) => pha.lat && pha.lng);
+}
+
+async function persistHudPhaRoster(roster) {
+  let batch = db.batch();
+  let writes = 0;
+  for (const pha of roster) {
+    batch.set(db.collection('hud_phas').doc(pha.id), pha, { merge: true });
+    writes++;
+    if (writes >= 450) {
+      await batch.commit();
+      batch = db.batch();
+      writes = 0;
+    }
+  }
+  if (writes) await batch.commit();
 }
 
 async function searchHudPhaAwards(startDate, endDate, limit = 100, maxPages = 3) {
@@ -606,7 +660,7 @@ async function persistHudAwards(awards) {
   for (const award of awards) {
     batch.set(db.collection('hud_pha_awards').doc(award.id), award, { merge: true });
     writes++;
-    const phaId = md5(`${award.recipient_name}:${award.recipient_state}`);
+    const phaId = `hud-${award.participant_code || md5(`${award.recipient_name}:${award.recipient_state}`)}`;
     const current = phaTotals.get(phaId) || {
       id: phaId,
       name: award.recipient_name,
@@ -1457,8 +1511,8 @@ app.get('/api/region-dossier', cache(3600000, async (req) => {
 
 app.get('/api/hud-pha-flows', cache(300000, async (req) => {
   const state = req.query.state ? String(req.query.state).toUpperCase() : '';
-  let phaQuery = db.collection('hud_phas').orderBy('total_amount', 'desc').limit(1000);
-  if (state && stateCodes.has(state)) phaQuery = db.collection('hud_phas').where('state', '==', state).orderBy('total_amount', 'desc').limit(1000);
+  let phaQuery = db.collection('hud_phas').orderBy('total_amount', 'desc').limit(5000);
+  if (state && stateCodes.has(state)) phaQuery = db.collection('hud_phas').where('state', '==', state).orderBy('total_amount', 'desc').limit(5000);
   const [phaSnap, awardSnap] = await Promise.all([
     phaQuery.get(),
     db.collection('hud_pha_awards').orderBy('start_date', 'desc').limit(250).get(),
@@ -1509,6 +1563,17 @@ app.get('/api/federal-power', cache(86400000, async () => {
   const people = snap.docs.map((doc) => doc.data());
   return { people, total: people.length, timestamp: new Date().toISOString() };
 }));
+
+app.all('/api/hud-pha-flows/update-roster', async (_req, res) => {
+  try {
+    const roster = await fetchHudPhaRoster();
+    await persistHudPhaRoster(roster);
+    res.json({ inserted_or_updated: roster.length, timestamp: new Date().toISOString() });
+  } catch (err) {
+    console.error('[AutoNateAI Intel Functions] HUD PHA roster update failed', err);
+    res.status(500).json({ error: 'HUD PHA roster update failed', detail: err instanceof Error ? err.message : 'Unknown error' });
+  }
+});
 
 app.all('/api/federal-power/update', async (_req, res) => {
   try {
@@ -1567,8 +1632,10 @@ export const dailyHudPhaPull = onSchedule({
   serviceAccount: 'firebase-adminsdk-fbsvc@autonateai-learning-hub.iam.gserviceaccount.com',
 }, async () => {
   const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+  const roster = await fetchHudPhaRoster();
+  await persistHudPhaRoster(roster);
   const awards = await searchHudPhaAwards(yesterday, yesterday, 100, 10);
   await persistHudAwards(awards);
   await updatePowerMap();
-  console.log(`[AutoNateAI Intel] Daily HUD PHA pull stored ${awards.length} awards for ${yesterday}`);
+  console.log(`[AutoNateAI Intel] Daily HUD PHA pull stored ${roster.length} PHAs and ${awards.length} awards for ${yesterday}`);
 });
