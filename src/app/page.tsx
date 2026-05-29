@@ -101,10 +101,10 @@ function EntityDetailModal({ entity, onClose }: { entity: any; onClose: () => vo
   if (!entity) return null;
   const isPha = entity.type === 'hud_pha';
   const rows = isPha
-    ? [['Participant Code', entity.participant_code], ['State', entity.state], ['Program Type', entity.program_type || 'Not specified'], ['Total Units', Number(entity.total_units || 0).toLocaleString()], ['Section 8 Units', Number(entity.section8_units || 0).toLocaleString()], ['USAspending Awards', Number(entity.award_count || 0).toLocaleString()], ['USAspending Total', money(entity.total_amount)]]
+    ? [['Participant Code', entity.participant_code], ['State', entity.state], ['Program Type', entity.program_type || 'Not specified'], ['Total Units', Number(entity.total_units || 0).toLocaleString()], ['Section 8 Units', Number(entity.section8_units || 0).toLocaleString()], ['USAspending Awards', Number(entity.award_count || 0).toLocaleString()], ['USAspending Total', money(entity.total_amount)], ['Latest Award', entity.latest_award_date || 'No matched award'], ['Spend Window', entity.spend_window_days ? `${Number(entity.spend_window_days).toLocaleString()} days` : 'Unknown'], ['Flow Score', entity.flow_score ?? 'N/A']]
     : [['Branch', entity.branch], ['Role', entity.role], ['Chamber', entity.chamber || 'N/A'], ['State', entity.state], ['Party', entity.party || 'Nonpartisan/Unknown'], ['District', entity.district ?? 'Statewide/N/A']];
   const bars = isPha
-    ? [['USAspending', Number(entity.total_amount || 0), '#00AEEF'], ['HUD OpFund', Number(entity.opfund_amount || 0), '#76FF03'], ['HUD CapFund', Number(entity.capfund_amount || 0), '#D4AF37'], ['ROSS/FSS', Number(entity.ross_amount || 0) + Number(entity.fss_amount || 0), '#B388FF']]
+    ? [['Recency', Number(entity.recency_score || 0), '#00E676'], ['Flow Score', Number(entity.flow_score || 0), '#00AEEF'], ['HUD OpFund', Number(entity.opfund_amount || 0), '#76FF03'], ['Award Count', Math.min(Number(entity.award_count || 0) * 8, 100), '#D4AF37']]
     : [['Influence Node', entity.branch === 'white_house' ? 100 : entity.branch === 'judicial' ? 80 : 60, entity.party === 'Republican' ? '#EB5757' : entity.party === 'Democrat' ? '#2F80ED' : '#FFFFFF']];
   const maxBar = Math.max(...bars.map(([, v]) => Number(v)), 1);
 

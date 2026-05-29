@@ -262,9 +262,12 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
       }, paint: { 'text-color': '#76FF03', 'text-halo-color': '#000', 'text-halo-width': 1, 'text-opacity': 0.7 }});
 
       map.addLayer({ id: 'hud-pha-bubbles', type: 'circle', source: 'hud-pha-flows', paint: {
-        'circle-radius': ['interpolate',['linear'],['sqrt',['max',['+',['get','total_amount'],['*',['get','total_units'],10000]],1]], 1,3, 1000000,7, 100000000,18, 1000000000,30],
-        'circle-color': '#00AEEF', 'circle-opacity': 0.28,
-        'circle-stroke-width': 2, 'circle-stroke-color': '#FFFFFF', 'circle-stroke-opacity': 0.55,
+        'circle-radius': ['interpolate',['linear'],['get','flow_score'], 0,3, 20,5, 50,10, 75,16, 100,25],
+        'circle-color': ['match', ['get','flow_bucket'], 'fresh','#00E676', 'active','#00AEEF', 'aging','#D4AF37', 'dormant','#6B7280', '#00AEEF'],
+        'circle-opacity': ['interpolate',['linear'],['get','recency_score'], 0,0.22, 50,0.42, 100,0.72],
+        'circle-stroke-width': ['interpolate',['linear'],['get','award_count'], 0,1, 5,2, 25,3.5],
+        'circle-stroke-color': ['match', ['get','flow_bucket'], 'fresh','#B7FFCF', 'active','#E6F7FF', 'aging','#FFE7A3', 'dormant','#9CA3AF', '#FFFFFF'],
+        'circle-stroke-opacity': 0.62,
       }});
       map.addLayer({ id: 'hud-pha-label', type: 'symbol', source: 'hud-pha-flows', minzoom: 4, layout: {
         'text-field': ['get','name'], 'text-size': 9, 'text-font': ['Open Sans Bold'],

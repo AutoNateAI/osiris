@@ -571,6 +571,42 @@ function normalizeHudAward(row) {
   };
 }
 
+function daysBetween(startDate, endDate) {
+  if (!startDate || !endDate) return 0;
+  const start = new Date(startDate).getTime();
+  const end = new Date(endDate).getTime();
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return 0;
+  return Math.round((end - start) / 86400000);
+}
+
+function decoratePhaForMap(pha, recentAwards = []) {
+  const latestAward = recentAwards
+    .filter((award) => award.participant_code && award.participant_code === pha.participant_code)
+    .sort((a, b) => String(b.start_date || '').localeCompare(String(a.start_date || '')))[0];
+  const latestDate = latestAward?.start_date || pha.latest_award_date || '';
+  const latestEndDate = latestAward?.end_date || '';
+  const daysSinceLatest = latestDate ? Math.max(0, Math.round((Date.now() - new Date(latestDate).getTime()) / 86400000)) : 99999;
+  const recencyScore = Math.max(0, Math.min(100, 100 - (daysSinceLatest / 1095) * 100));
+  const spendWindowDays = daysBetween(latestDate, latestEndDate);
+  const amountScore = Math.min(100, Math.log10(Math.max(Number(pha.total_amount || 0), 1)) * 10);
+  const countScore = Math.min(100, Math.log10(Math.max(Number(pha.award_count || 0), 1) + 1) * 32);
+  const windowScore = Math.min(100, Math.log10(Math.max(spendWindowDays, 1)) * 24);
+  const flow_score = Math.round((recencyScore * 0.42) + (amountScore * 0.28) + (countScore * 0.2) + (windowScore * 0.1));
+  const flow_bucket = recencyScore >= 80 ? 'fresh' : recencyScore >= 45 ? 'active' : recencyScore >= 10 ? 'aging' : 'dormant';
+  return {
+    ...pha,
+    latest_award_date: latestDate,
+    latest_award_end_date: latestEndDate,
+    latest_award_amount: Number(latestAward?.amount || 0),
+    latest_award_program: latestAward?.program_title || '',
+    days_since_latest_award: daysSinceLatest,
+    spend_window_days: spendWindowDays,
+    recency_score: Math.round(recencyScore),
+    flow_score,
+    flow_bucket,
+  };
+}
+
 async function fetchHudPhaRoster() {
   const data = await fetchJson('https://opendata.arcgis.com/api/v3/datasets/3d6ef39026b94eb59ddb7ce28eb0b692_0/downloads/data?format=geojson&spatialRefId=4326&where=1%3D1', {
     signal: AbortSignal.timeout(30000),
@@ -1517,8 +1553,8 @@ app.get('/api/hud-pha-flows', cache(300000, async (req) => {
     phaQuery.get(),
     db.collection('hud_pha_awards').orderBy('start_date', 'desc').limit(250).get(),
   ]);
-  const phas = phaSnap.docs.map((doc) => doc.data());
   const awards = awardSnap.docs.map((doc) => doc.data()).filter((award) => !state || award.recipient_state === state);
+  const phas = phaSnap.docs.map((doc) => decoratePhaForMap(doc.data(), awards));
   const stateTotals = {};
   for (const pha of phas) {
     const bucket = stateTotals[pha.state] || { state: pha.state, total_amount: 0, pha_count: 0, award_count: 0, ...centroidForState(pha.state) };
