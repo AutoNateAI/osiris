@@ -888,14 +888,72 @@ async function persistHudAwards(awards) {
   if (writes) await batch.commit();
 }
 
+const STATIC_POWER_ORIGINS = {
+  'Donald J. Trump': { origin_city: 'Queens', origin_state: 'NY', lat: 40.7282, lng: -73.7949, origin_source: 'static birthplace seed' },
+  'JD Vance': { origin_city: 'Middletown', origin_state: 'OH', lat: 39.5151, lng: -84.3983, origin_source: 'static birthplace seed' },
+  'John G. Roberts, Jr.': { origin_city: 'Buffalo', origin_state: 'NY', lat: 42.8864, lng: -78.8784, origin_source: 'static birthplace seed' },
+  'Clarence Thomas': { origin_city: 'Pin Point', origin_state: 'GA', lat: 31.9474, lng: -81.0907, origin_source: 'static birthplace seed' },
+  'Samuel A. Alito, Jr.': { origin_city: 'Trenton', origin_state: 'NJ', lat: 40.2206, lng: -74.7597, origin_source: 'static birthplace seed' },
+  'Sonia Sotomayor': { origin_city: 'Bronx', origin_state: 'NY', lat: 40.8448, lng: -73.8648, origin_source: 'static birthplace seed' },
+  'Elena Kagan': { origin_city: 'New York', origin_state: 'NY', lat: 40.7128, lng: -74.006, origin_source: 'static birthplace seed' },
+  'Neil M. Gorsuch': { origin_city: 'Denver', origin_state: 'CO', lat: 39.7392, lng: -104.9903, origin_source: 'static birthplace seed' },
+  'Brett M. Kavanaugh': { origin_city: 'Washington', origin_state: 'DC', lat: 38.9072, lng: -77.0369, origin_source: 'static birthplace seed' },
+  'Amy Coney Barrett': { origin_city: 'New Orleans', origin_state: 'LA', lat: 29.9511, lng: -90.0715, origin_source: 'static birthplace seed' },
+  'Ketanji Brown Jackson': { origin_city: 'Washington', origin_state: 'DC', lat: 38.9072, lng: -77.0369, origin_source: 'static birthplace seed' },
+};
+
+function parseWikidataPoint(point = '') {
+  const match = String(point).match(/Point\(([-0-9.]+) ([-0-9.]+)\)/);
+  if (!match) return null;
+  return { lng: Number(match[1]), lat: Number(match[2]) };
+}
+
+async function fetchWikidataBirthplaces(wikidataIds = []) {
+  const unique = [...new Set(wikidataIds.filter(Boolean))];
+  const out = new Map();
+  for (let i = 0; i < unique.length; i += 80) {
+    const values = unique.slice(i, i + 80).map((id) => `wd:${id}`).join(' ');
+    const query = `
+      SELECT ?person ?placeLabel ?coord WHERE {
+        VALUES ?person { ${values} }
+        OPTIONAL { ?person wdt:P19 ?place. ?place wdt:P625 ?coord. }
+        SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
+      }
+    `;
+    const url = `https://query.wikidata.org/sparql?format=json&query=${encodeURIComponent(query)}`;
+    try {
+      const data = await fetchJson(url, {
+        signal: AbortSignal.timeout(20000),
+        headers: { 'User-Agent': 'AutoNateAI-Intel/1.0 (https://intel.autonateai.com)' },
+      });
+      for (const row of data.results?.bindings || []) {
+        const id = row.person?.value?.split('/').pop();
+        const coord = parseWikidataPoint(row.coord?.value);
+        if (id && coord) {
+          out.set(id, {
+            ...coord,
+            origin_city: row.placeLabel?.value || '',
+            origin_source: 'Wikidata birthplace',
+          });
+        }
+      }
+    } catch (err) {
+      console.warn('[AutoNateAI Intel Functions] Wikidata birthplace lookup failed', err instanceof Error ? err.message : err);
+    }
+  }
+  return out;
+}
+
 async function updatePowerMap() {
   const legislatorsYaml = await fetchText('https://raw.githubusercontent.com/unitedstates/congress-legislators/main/legislators-current.yaml', { signal: AbortSignal.timeout(20000) }).catch(() => '');
   const legislators = legislatorsYaml ? YAML.parse(legislatorsYaml) : [];
+  const birthplaces = await fetchWikidataBirthplaces((legislators || []).map((leg) => leg.id?.wikidata));
   const people = [];
   for (const leg of legislators || []) {
     const term = leg.terms?.[leg.terms.length - 1] || {};
     const state = term.state || 'DC';
     const coords = centroidForState(state);
+    const origin = birthplaces.get(leg.id?.wikidata) || {};
     people.push({
       id: `congress-${leg.id?.bioguide}`,
       name: [leg.name?.official_full || `${leg.name?.first || ''} ${leg.name?.last || ''}`.trim()][0],
@@ -903,10 +961,14 @@ async function updatePowerMap() {
       chamber: term.type === 'sen' ? 'Senate' : 'House',
       party: term.party || '',
       state,
+      represented_state: state,
       district: term.district ?? null,
       role: term.type === 'sen' ? 'U.S. Senator' : 'U.S. Representative',
-      lat: coords.lat,
-      lng: coords.lng,
+      lat: origin.lat ?? coords.lat,
+      lng: origin.lng ?? coords.lng,
+      origin_city: origin.origin_city || '',
+      origin_state: origin.origin_state || state,
+      origin_source: origin.origin_source || 'state centroid fallback',
       source: 'unitedstates/congress-legislators',
       updated_at: new Date().toISOString(),
     });
@@ -915,7 +977,14 @@ async function updatePowerMap() {
     { id: 'whitehouse-president', name: 'Donald J. Trump', branch: 'white_house', role: 'President', party: 'Republican', state: 'DC' },
     { id: 'whitehouse-vice-president', name: 'JD Vance', branch: 'white_house', role: 'Vice President', party: 'Republican', state: 'DC' },
     ...['John G. Roberts, Jr.', 'Clarence Thomas', 'Samuel A. Alito, Jr.', 'Sonia Sotomayor', 'Elena Kagan', 'Neil M. Gorsuch', 'Brett M. Kavanaugh', 'Amy Coney Barrett', 'Ketanji Brown Jackson'].map((name) => ({ id: `scotus-${md5(name).slice(0, 10)}`, name, branch: 'judicial', role: name.includes('Roberts') ? 'Chief Justice' : 'Associate Justice', party: '', state: 'DC' })),
-  ].map((person) => ({ ...person, ...centroidForState(person.state), source: 'official/static seed', updated_at: new Date().toISOString() }));
+  ].map((person) => ({
+    ...person,
+    ...centroidForState(person.state),
+    ...(STATIC_POWER_ORIGINS[person.name] || {}),
+    represented_state: person.state,
+    source: 'official/static seed',
+    updated_at: new Date().toISOString(),
+  }));
   people.push(...staticPower);
   let batch = db.batch();
   people.forEach((person) => batch.set(db.collection('federal_power').doc(person.id), person, { merge: true }));

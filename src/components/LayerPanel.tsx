@@ -26,7 +26,10 @@ const LAYER_GROUPS = [
     layers: [
       { key: 'hud_pha_flows', label: 'HUD PHA Flows', icon: Landmark, color: '#00AEEF', dataKey: 'hud_phas,hud_pha_awards,hud_state_totals' },
       { key: 'sbir_recipients', label: 'SBIR/STTR Recipients', icon: BriefcaseBusiness, color: '#F2C94C', dataKey: 'sbir_recipients' },
-      { key: 'federal_power', label: 'Federal Power', icon: Users, color: '#FFFFFF', dataKey: 'federal_power' },
+      { key: 'federal_power_house', label: 'U.S. Representatives', icon: Users, color: '#FFFFFF', dataKey: 'federal_power' },
+      { key: 'federal_power_senate', label: 'U.S. Senators', icon: Users, color: '#D4AF37', dataKey: 'federal_power' },
+      { key: 'federal_power_judicial', label: 'Federal Judges', icon: Landmark, color: '#B388FF', dataKey: 'federal_power' },
+      { key: 'federal_power_white_house', label: 'White House Staff', icon: Users, color: '#FFD700', dataKey: 'federal_power' },
       { key: 'power_edges', label: 'Power Loop Edges', icon: Radio, color: '#B388FF', dataKey: '' },
     ],
   },

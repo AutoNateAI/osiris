@@ -1003,11 +1003,19 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
 
   useEffect(() => {
     if (!mapReady) return;
-    setGeo('federal-power', activeLayers.federal_power && data.federal_power ? data.federal_power.map((p: any, index: number) => {
+    const showPower = (p: any) => {
+      if (activeLayers.federal_power) return true;
+      if (p.branch === 'congress' && p.chamber === 'House') return !!activeLayers.federal_power_house;
+      if (p.branch === 'congress' && p.chamber === 'Senate') return !!activeLayers.federal_power_senate;
+      if (p.branch === 'judicial') return !!activeLayers.federal_power_judicial;
+      if (p.branch === 'white_house') return !!activeLayers.federal_power_white_house;
+      return false;
+    };
+    setGeo('federal-power', data.federal_power ? data.federal_power.filter(showPower).map((p: any, index: number) => {
       const offset = (index % 9) * 0.08;
       return { type: 'Feature', geometry: { type: 'Point', coordinates: [(p.lng || -77.0369) + offset, (p.lat || 38.9072) + offset] }, properties: { ...p, type: 'federal_power' } };
     }) : []);
-  }, [mapReady, data.federal_power, activeLayers.federal_power, setGeo]);
+  }, [mapReady, data.federal_power, activeLayers.federal_power, activeLayers.federal_power_house, activeLayers.federal_power_senate, activeLayers.federal_power_judicial, activeLayers.federal_power_white_house, setGeo]);
 
   useEffect(() => {
     if (!mapReady) return;
@@ -1025,6 +1033,7 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
       const seen = new Set<string>();
       const points = (data.federal_power || [])
         .filter((p: any) => p.branch === 'congress' && p.party === party && typeof p.lng === 'number' && typeof p.lat === 'number')
+        .filter((p: any) => (p.chamber === 'House' && activeLayers.federal_power_house !== false) || (p.chamber === 'Senate' && activeLayers.federal_power_senate !== false))
         .filter((p: any) => {
           const key = `${p.state}:${p.district ?? p.chamber ?? p.name}`;
           if (seen.has(key)) return false;
@@ -1057,7 +1066,7 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
     };
     const features = [makeLoop('Democrat'), makeLoop('Republican')].filter((feature: any) => feature.geometry.coordinates.length > 2);
     setGeo('power-edges', features);
-  }, [mapReady, data.federal_power, activeLayers.power_edges, setGeo]);
+  }, [mapReady, data.federal_power, activeLayers.power_edges, activeLayers.federal_power_house, activeLayers.federal_power_senate, setGeo]);
 
   useEffect(() => {
     if (!mapReady) return;
@@ -1138,7 +1147,7 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
     setVis(['infra-glow','infra-dots','infra-label'], activeLayers.infrastructure);
     setVis(['hud-pha-bubbles','hud-pha-label'], activeLayers.hud_pha_flows);
     setVis(['sbir-recipient-glow','sbir-recipient-dots','sbir-recipient-label'], activeLayers.sbir_recipients);
-    setVis(['power-dots','power-label'], activeLayers.federal_power);
+    setVis(['power-dots','power-label'], activeLayers.federal_power || activeLayers.federal_power_house || activeLayers.federal_power_senate || activeLayers.federal_power_judicial || activeLayers.federal_power_white_house);
     setVis(['power-edge-glow','power-edge-lines'], activeLayers.power_edges);
     setVis(['maritime-glow','maritime-dots','maritime-label'], activeLayers.maritime);
     setVis(['choke-glow','choke-dots','choke-label'], activeLayers.maritime);
