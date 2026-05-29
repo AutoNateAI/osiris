@@ -39,6 +39,9 @@ function computeSolarTerminator(): [number, number][] {
 }
 
 const EMPTY_FC = { type: 'FeatureCollection' as const, features: [] };
+const COUNTRY_GEOJSON_URL = 'https://raw.githubusercontent.com/datasets/geo-countries/master/data/countries.geojson';
+const US_STATES_GEOJSON_URL = 'https://raw.githubusercontent.com/PublicaMundi/MappingAPI/master/data/geojson/us-states.json';
+const BASE_CHOROPLETH_LAYERS = ['country-color-fill', 'country-color-outline', 'us-state-color-fill', 'us-state-color-outline'];
 
 function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightClick, onViewStateChange, flyToLocation, projection = 'globe', mapStyle = 'dark', sweepData, scanTargets = [] }: OsirisMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -112,6 +115,41 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
       // Sources
       const sources = ['flights','military','jets','private-fl','satellites','earthquakes','gdelt','gps-jamming','day-night','cctv','fires','weather','infrastructure','hud-pha-flows','federal-power','power-edges','maritime','maritime-choke','maritime-ships','live-news','sigint-news','conflict-zones', 'war-alerts-targets', 'war-alerts-lines', 'balloons', 'radiation', 'ip-sweep-devices', 'ip-sweep-pulse', 'ip-sweep-connections', 'scan-targets'];
       sources.forEach(s => map.addSource(s, { type: 'geojson', data: EMPTY_FC }));
+
+      map.addSource('country-color-areas', { type: 'geojson', data: COUNTRY_GEOJSON_URL });
+      map.addSource('us-state-color-areas', { type: 'geojson', data: US_STATES_GEOJSON_URL });
+      map.addLayer({ id: 'country-color-fill', type: 'fill', source: 'country-color-areas', paint: {
+        'fill-color': ['match', ['get', 'ISO3166-1-Alpha-2'],
+          ['US', 'CA', 'MX', 'GT', 'BZ', 'SV', 'HN', 'NI', 'CR', 'PA', 'CU', 'HT', 'DO', 'JM', 'BS', 'TT'], '#1E88E5',
+          ['BR', 'AR', 'CL', 'PE', 'CO', 'VE', 'EC', 'BO', 'PY', 'UY', 'GY', 'SR', 'GF'], '#43A047',
+          ['GB', 'IE', 'FR', 'DE', 'ES', 'PT', 'IT', 'NL', 'BE', 'CH', 'AT', 'PL', 'CZ', 'SK', 'HU', 'RO', 'BG', 'GR', 'SE', 'NO', 'FI', 'DK', 'UA'], '#8E44AD',
+          ['MA', 'DZ', 'TN', 'LY', 'EG', 'SD', 'ET', 'KE', 'TZ', 'UG', 'NG', 'GH', 'CI', 'SN', 'ML', 'NE', 'ZA', 'AO', 'MZ', 'CD'], '#F39C12',
+          ['CN', 'JP', 'KR', 'KP', 'IN', 'PK', 'BD', 'TH', 'VN', 'LA', 'KH', 'MM', 'MY', 'SG', 'ID', 'PH', 'IR', 'IQ', 'SA', 'AE', 'IL', 'TR'], '#D81B60',
+          ['AU', 'NZ', 'PG', 'FJ', 'SB', 'VU', 'NC'], '#00ACC1',
+          '#5E6A75'
+        ],
+        'fill-opacity': ['interpolate', ['linear'], ['zoom'], 1, 0.16, 4, 0.12, 7, 0.07],
+      }});
+      map.addLayer({ id: 'country-color-outline', type: 'line', source: 'country-color-areas', paint: {
+        'line-color': '#FFFFFF',
+        'line-opacity': ['interpolate', ['linear'], ['zoom'], 1, 0.18, 4, 0.34, 7, 0.2],
+        'line-width': ['interpolate', ['linear'], ['zoom'], 1, 0.45, 4, 0.8, 7, 0.45],
+      }});
+      map.addLayer({ id: 'us-state-color-fill', type: 'fill', source: 'us-state-color-areas', minzoom: 2, paint: {
+        'fill-color': ['match', ['get', 'name'],
+          'California', '#2F80ED', 'Texas', '#EB5757', 'Florida', '#F2994A', 'New York', '#9B51E0',
+          'Washington', '#27AE60', 'Oregon', '#6FCF97', 'Nevada', '#BB6BD9', 'Arizona', '#F2C94C',
+          'New Mexico', '#56CCF2', 'Colorado', '#00AEEF', 'Illinois', '#B388FF', 'Georgia', '#FF6B6B',
+          'North Carolina', '#4ECDC4', 'Virginia', '#A3E635', 'Pennsylvania', '#D4AF37', 'Ohio', '#00E676',
+          '#6B7280'
+        ],
+        'fill-opacity': ['interpolate', ['linear'], ['zoom'], 2, 0.18, 5, 0.12, 8, 0.06],
+      }});
+      map.addLayer({ id: 'us-state-color-outline', type: 'line', source: 'us-state-color-areas', minzoom: 2, paint: {
+        'line-color': '#F8FAFC',
+        'line-opacity': ['interpolate', ['linear'], ['zoom'], 2, 0.28, 5, 0.48, 8, 0.24],
+        'line-width': ['interpolate', ['linear'], ['zoom'], 2, 0.5, 5, 1.1, 8, 0.6],
+      }});
 
       // ── CONFLICT ZONES — small warning markers (not polygons) ──
       // Create warning triangle icon
@@ -1233,7 +1271,7 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
             tileSize: 256,
             maxzoom: 18,
           });
-          map.addLayer({ id: 'light-layer', type: 'raster', source: 'light-tiles', paint: { 'raster-opacity': 1 } }, 'day-night-fill');
+          map.addLayer({ id: 'light-layer', type: 'raster', source: 'light-tiles', paint: { 'raster-opacity': 0.9 } }, 'day-night-fill');
         } else {
           map.setLayoutProperty('light-layer', 'visibility', 'visible');
         }
@@ -1264,6 +1302,11 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
           map.setLayoutProperty('satellite-layer', 'visibility', 'none');
         }
       }
+      BASE_CHOROPLETH_LAYERS.forEach((layer) => {
+        if (!map.getLayer(layer)) return;
+        map.setLayoutProperty(layer, 'visibility', mapStyle === 'satellite' ? 'none' : 'visible');
+        if (map.getLayer('day-night-fill')) map.moveLayer(layer, 'day-night-fill');
+      });
     } catch (e) {
       console.warn('Style switch failed:', e);
     }
