@@ -14,6 +14,7 @@ import ViewPresets from '@/components/ViewPresets';
 import KeyboardShortcuts from '@/components/KeyboardShortcuts';
 import GlobalStatusBar from '@/components/GlobalStatusBar';
 import LiveAlerts from '@/components/LiveAlerts';
+import { authenticatedFetch } from '@/lib/apiClient';
 
 const OsirisMap = dynamic(() => import('@/components/OsirisMap'), { ssr: false });
 const LayerPanel = dynamic(() => import('@/components/LayerPanel'));
@@ -270,7 +271,7 @@ export default function Dashboard() {
   const handleRightClick = useCallback(async (coords: { lat: number; lng: number }) => {
     setDossierLoading(true); setRegionDossier(null);
     try {
-      const res = await fetch(`/api/region-dossier?lat=${coords.lat}&lng=${coords.lng}`);
+      const res = await authenticatedFetch(`/api/region-dossier?lat=${coords.lat}&lng=${coords.lng}`);
       if (res.ok) setRegionDossier(await res.json());
     } catch (e) { console.warn('[AutoNateAI Intel] Suppressed error:', e instanceof Error ? e.message : e); } finally { setDossierLoading(false); }
   }, []);
@@ -289,7 +290,7 @@ export default function Dashboard() {
   const fetchEndpoint = useCallback(async (url: string, transform?: (d: any) => any, options?: RequestInit) => {
     if (typeof document !== 'undefined' && document.hidden) return;
     try {
-      const res = await fetch(url, options);
+      const res = await authenticatedFetch(url, options);
       if (res.ok) {
         const json = await res.json();
         const d = transform ? transform(json) : json;
@@ -313,7 +314,7 @@ export default function Dashboard() {
     // Priority 2: Space Weather (needed for MarketsPanel)
     const spaceTimer = setTimeout(async () => {
       try {
-        const r = await fetch('/api/space-weather');
+        const r = await authenticatedFetch('/api/space-weather');
         if (r.ok) setSpaceWeather(await r.json());
       } catch (e) { console.warn('[AutoNateAI Intel] Suppressed error:', e instanceof Error ? e.message : e); }
     }, 5000);

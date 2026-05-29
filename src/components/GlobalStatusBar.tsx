@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
+import { authenticatedFetch } from '@/lib/apiClient';
 
 interface Exchange { name: string; country: string; open: boolean; }
 interface CountryRisk { code: string; risk_score: number; risk_level: string; tags: string[]; }
@@ -24,8 +25,8 @@ export default function GlobalStatusBar() {
     const fetchData = async () => {
       try {
         const [riskRes, cyberRes] = await Promise.allSettled([
-          fetch('/api/country-risk'),
-          fetch('/api/cyber-threats'),
+          authenticatedFetch('/api/country-risk'),
+          authenticatedFetch('/api/cyber-threats'),
         ]);
         if (riskRes.status === 'fulfilled' && riskRes.value.ok) {
           const d = await riskRes.value.json();

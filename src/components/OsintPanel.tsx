@@ -9,6 +9,7 @@ import {
   CheckCircle, XCircle, Clock, ExternalLink, Crosshair,
   Maximize2, Minimize2
 } from 'lucide-react';
+import { authenticatedFetch } from '@/lib/apiClient';
 
 const TABS = [
   { id: 'scanner', label: 'PORT SCAN', icon: Radar, placeholder: 'IP or hostname', color: '#00E5FF' },
@@ -55,7 +56,7 @@ function OsintPanelInner({ isMobile, onSweepVisualize, onScanGeolocate }: OsintP
     });
     // Fetch in parallel
     const results = await Promise.allSettled(
-      missing.map(id => fetch(`/api/osint/cve?cve=${encodeURIComponent(id)}`).then(r => r.json()).then(data => ({ id, data })))
+      missing.map(id => authenticatedFetch(`/api/osint/cve?cve=${encodeURIComponent(id)}`).then(r => r.json()).then(data => ({ id, data })))
     );
     setCveCache(prev => {
       const next = { ...prev };
@@ -78,7 +79,7 @@ function OsintPanelInner({ isMobile, onSweepVisualize, onScanGeolocate }: OsintP
       setSweepProgress({ current: 0, total: Math.pow(2, 32 - sweepCidr) });
       try {
         const cidr = sweepCidr;
-        const res = await fetch(`/api/osint/sweep?ip=${encodeURIComponent(query)}&cidr=${cidr}`);
+        const res = await authenticatedFetch(`/api/osint/sweep?ip=${encodeURIComponent(query)}&cidr=${cidr}`);
         if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || `Sweep failed (${res.status})`); }
         const data = await res.json();
         setSweepResult(data);
@@ -107,7 +108,7 @@ function OsintPanelInner({ isMobile, onSweepVisualize, onScanGeolocate }: OsintP
         case 'subdomains': url = `/api/scanner?target=${encodeURIComponent(query)}&type=subdomains`; break;
         case 'tech': url = `/api/scanner?target=${encodeURIComponent(query)}&type=tech`; break;
       }
-      const res = await fetch(url);
+      const res = await authenticatedFetch(url);
       const data = await res.json();
       if (res.ok) {
         setResults(data);
@@ -115,7 +116,7 @@ function OsintPanelInner({ isMobile, onSweepVisualize, onScanGeolocate }: OsintP
         
         // Geolocate the target in the background
         if (activeTab !== 'sweep' && activeTab !== 'vuln') {
-          fetch(`/api/osint/ip?ip=${encodeURIComponent(query)}`)
+          authenticatedFetch(`/api/osint/ip?ip=${encodeURIComponent(query)}`)
             .then(r => r.json())
             .then(locData => {
               if (locData && locData.geo && locData.geo.lat && locData.geo.lon && onScanGeolocate) {
