@@ -26,11 +26,13 @@ const LAYER_GROUPS = [
     layers: [
       { key: 'hud_pha_flows', label: 'HUD PHA Flows', icon: Landmark, color: '#00AEEF', dataKey: 'hud_phas,hud_pha_awards,hud_state_totals' },
       { key: 'sbir_recipients', label: 'SBIR/STTR Recipients', icon: BriefcaseBusiness, color: '#F2C94C', dataKey: 'sbir_recipients' },
-      { key: 'federal_power_house', label: 'U.S. Representatives', icon: Users, color: '#FFFFFF', dataKey: 'federal_power' },
-      { key: 'federal_power_senate', label: 'U.S. Senators', icon: Users, color: '#D4AF37', dataKey: 'federal_power' },
-      { key: 'federal_power_judicial', label: 'Federal Judges', icon: Landmark, color: '#B388FF', dataKey: 'federal_power' },
-      { key: 'federal_power_white_house', label: 'White House Staff', icon: Users, color: '#FFD700', dataKey: 'federal_power' },
+      { key: 'federal_power_house', label: 'U.S. Representatives', icon: Users, color: '#FFFFFF', dataKey: 'federal_power', countFilter: (p: any) => p.branch === 'congress' && p.chamber === 'House' },
+      { key: 'federal_power_senate', label: 'U.S. Senators', icon: Users, color: '#D4AF37', dataKey: 'federal_power', countFilter: (p: any) => p.branch === 'congress' && p.chamber === 'Senate' },
+      { key: 'federal_power_judicial', label: 'Federal Judges', icon: Landmark, color: '#B388FF', dataKey: 'federal_power', countFilter: (p: any) => p.branch === 'judicial' },
+      { key: 'federal_power_white_house', label: 'White House Staff', icon: Users, color: '#FFD700', dataKey: 'federal_power', countFilter: (p: any) => p.branch === 'white_house' },
       { key: 'power_edges', label: 'Power Loop Edges', icon: Radio, color: '#B388FF', dataKey: '' },
+      { key: 'power_edges_democrat', label: 'Democratic Loop', icon: Radio, color: '#2F80ED', dataKey: '' },
+      { key: 'power_edges_republican', label: 'Republican Loop', icon: Radio, color: '#EB5757', dataKey: '' },
     ],
   },
   {
@@ -103,19 +105,20 @@ function LayerPanel({ data, activeLayers, setActiveLayers, sbirYearRange, setSbi
   });
 
   const toggle = (key: string) => setActiveLayers((prev: any) => ({ ...prev, [key]: !prev[key] }));
-  const getCount = (dk: string): number | null => {
+  const getCount = (layer: any): number | null => {
+    const dk = layer.dataKey;
     if (!dk) return null;
     let total = 0;
     let found = false;
     for (const k of dk.split(',')) {
       if (data[k] && Array.isArray(data[k])) {
-        total += data[k].length;
+        total += layer.countFilter ? data[k].filter(layer.countFilter).length : data[k].length;
         found = true;
       }
     }
     return found ? total : null;
   };
-  const totalEntities = ALL_LAYERS.reduce((s: number, l: any) => s + (getCount(l.dataKey) || 0), 0);
+  const totalEntities = ALL_LAYERS.reduce((s: number, l: any) => s + (getCount(l) || 0), 0);
   const activeCount = Object.values(activeLayers).filter(Boolean).length;
 
   const toggleGroup = (groupLabel: string) => {
@@ -206,7 +209,7 @@ function LayerPanel({ data, activeLayers, setActiveLayers, sbirYearRange, setSbi
                       {group.layers.map((layer) => {
                         const Icon = layer.icon;
                         const isActive = activeLayers[layer.key];
-                        const count = getCount(layer.dataKey);
+                        const count = getCount(layer);
                         return (
                           <div key={layer.key}>
                           <button

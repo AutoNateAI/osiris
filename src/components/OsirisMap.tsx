@@ -1019,7 +1019,7 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
 
   useEffect(() => {
     if (!mapReady) return;
-    if (!activeLayers.power_edges || !data.federal_power?.length) {
+    if (!activeLayers.power_edges || (!activeLayers.power_edges_democrat && !activeLayers.power_edges_republican) || !data.federal_power?.length) {
       setGeo('power-edges', []);
       return;
     }
@@ -1064,9 +1064,12 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
         properties: { party, name: `${party} power loop`, point_count: coords.length - 2 },
       };
     };
-    const features = [makeLoop('Democrat'), makeLoop('Republican')].filter((feature: any) => feature.geometry.coordinates.length > 2);
+    const features = [
+      activeLayers.power_edges_democrat ? makeLoop('Democrat') : null,
+      activeLayers.power_edges_republican ? makeLoop('Republican') : null,
+    ].filter((feature: any) => feature?.geometry.coordinates.length > 2);
     setGeo('power-edges', features);
-  }, [mapReady, data.federal_power, activeLayers.power_edges, activeLayers.federal_power_house, activeLayers.federal_power_senate, setGeo]);
+  }, [mapReady, data.federal_power, activeLayers.power_edges, activeLayers.power_edges_democrat, activeLayers.power_edges_republican, activeLayers.federal_power_house, activeLayers.federal_power_senate, setGeo]);
 
   useEffect(() => {
     if (!mapReady) return;
@@ -1148,7 +1151,7 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
     setVis(['hud-pha-bubbles','hud-pha-label'], activeLayers.hud_pha_flows);
     setVis(['sbir-recipient-glow','sbir-recipient-dots','sbir-recipient-label'], activeLayers.sbir_recipients);
     setVis(['power-dots','power-label'], activeLayers.federal_power || activeLayers.federal_power_house || activeLayers.federal_power_senate || activeLayers.federal_power_judicial || activeLayers.federal_power_white_house);
-    setVis(['power-edge-glow','power-edge-lines'], activeLayers.power_edges);
+    setVis(['power-edge-glow','power-edge-lines'], activeLayers.power_edges && (activeLayers.power_edges_democrat || activeLayers.power_edges_republican));
     setVis(['maritime-glow','maritime-dots','maritime-label'], activeLayers.maritime);
     setVis(['choke-glow','choke-dots','choke-label'], activeLayers.maritime);
     setVis(['ship-dots','ship-label'], activeLayers.maritime);
@@ -1163,7 +1166,7 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
   }, [mapReady, activeLayers, setVis]);
 
   useEffect(() => {
-    if (!mapReady || !activeLayers.power_edges) return;
+    if (!mapReady || !activeLayers.power_edges || (!activeLayers.power_edges_democrat && !activeLayers.power_edges_republican)) return;
     const map = mapRef.current;
     if (!map?.getLayer('power-edge-lines')) return;
     let frame = 0;
@@ -1178,7 +1181,7 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
     };
     raf = requestAnimationFrame(animate);
     return () => cancelAnimationFrame(raf);
-  }, [mapReady, activeLayers.power_edges]);
+  }, [mapReady, activeLayers.power_edges, activeLayers.power_edges_democrat, activeLayers.power_edges_republican]);
 
   // IP Sweep visualization
   useEffect(() => {
