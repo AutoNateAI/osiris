@@ -211,7 +211,7 @@ export default function Dashboard() {
 
   // Global Stats Fetch
   useEffect(() => {
-    fetch('/api/stats')
+    authenticatedFetch('/api/stats')
       .then(res => res.json())
       .then(d => {
         if (d.stats) setGlobalStats(d.stats);
