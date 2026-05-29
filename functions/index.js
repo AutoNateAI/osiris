@@ -119,5 +119,6 @@ export const intelApi = onRequest({
   region: 'us-central1',
   timeoutSeconds: 60,
   memory: '512MiB',
+  serviceAccount: 'firebase-adminsdk-fbsvc@autonateai-learning-hub.iam.gserviceaccount.com',
   cors: false,
 }, app);
