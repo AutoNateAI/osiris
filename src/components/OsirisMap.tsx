@@ -89,7 +89,7 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
     const map = new maplibregl.Map({
       container: containerRef.current,
       style: 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json',
-      center: [25.48, 42.70], zoom: 6.5, minZoom: 1.5, maxZoom: 18,
+      center: [-98.5, 45.5], zoom: 2.8, minZoom: 1.5, maxZoom: 18,
       attributionControl: false,
       maxPitch: 85,
     });
