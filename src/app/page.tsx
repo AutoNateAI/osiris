@@ -97,11 +97,26 @@ function money(value: any) {
   return n.toLocaleString(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
 }
 
+function listValue(value: any) {
+  if (Array.isArray(value)) return value.filter(Boolean).join(', ');
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return '';
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) return parsed.filter(Boolean).join(', ');
+    } catch {}
+    return trimmed;
+  }
+  return '';
+}
+
 function EntityDetailModal({ entity, onClose }: { entity: any; onClose: () => void }) {
   if (!entity) return null;
   const isPha = entity.type === 'hud_pha';
   const isSbir = entity.type === 'sbir_recipient';
   const isCapability = ['education_org', 'workforce_org', 'health_org', 'funded_faith_org'].includes(entity.type);
+  const awardingAgencies = listValue(entity.awarding_agencies);
   const rows = isPha
     ? [['Participant Code', entity.participant_code], ['State', entity.state], ['Program Type', entity.program_type || 'Not specified'], ['Total Units', Number(entity.total_units || 0).toLocaleString()], ['Section 8 Units', Number(entity.section8_units || 0).toLocaleString()], ['Annual HUD Funding', money(entity.annual_hud_funding)], ['Funding / Unit', money(entity.funding_per_unit)], ['USAspending Awards', Number(entity.award_count || 0).toLocaleString()], ['USAspending Total', money(entity.total_amount)], ['SBIR Awards 25mi', Number(entity.sbir_awards_25mi || 0).toLocaleString()], ['SBIR Companies 25mi', Number(entity.unique_sbir_companies_25mi || 0).toLocaleString()], ['Federal Investment 25mi', money(entity.total_federal_investment_25mi)], ['Latest Award', entity.latest_award_date || 'No matched award'], ['Opportunity Score', entity.pha_opportunity_score ?? entity.flow_score ?? 'N/A']]
     : isSbir
@@ -144,7 +159,7 @@ function EntityDetailModal({ entity, onClose }: { entity: any; onClose: () => vo
             </div>
             {isPha && <div><div className="hud-label mb-2">ADDRESS / CONTACT</div><div className="text-[11px] text-[var(--text-secondary)] leading-relaxed">{[entity.address, entity.city, entity.state, entity.zip].filter(Boolean).join(', ') || 'No address in roster.'}<br />{entity.email || 'No email listed'} · {entity.phone || 'No phone listed'}</div></div>}
             {isSbir && <div><div className="hud-label mb-2">LOCAL SMB SIGNAL</div><div className="text-[11px] text-[var(--text-secondary)] leading-relaxed">{entity.company_website ? <a href={entity.company_website} target="_blank" rel="noreferrer" className="text-[var(--cyan-primary)] hover:underline">{entity.company_website}</a> : 'No website listed in SBIR bulk data.'}<br />{entity.latest_contract_end_date ? `Latest contract end: ${entity.latest_contract_end_date}` : 'No contract end date listed.'}</div></div>}
-            {isCapability && <div><div className="hud-label mb-2">CAPABILITY SIGNAL</div><div className="text-[11px] text-[var(--text-secondary)] leading-relaxed">{entity.website ? <a href={entity.website} target="_blank" rel="noreferrer" className="text-[var(--cyan-primary)] hover:underline">{entity.website}</a> : 'No website listed.'}<br />{entity.awarding_agencies?.length ? `Awarding agencies: ${entity.awarding_agencies.join(', ')}` : `Source: ${entity.source || 'Unknown'}`}</div></div>}
+            {isCapability && <div><div className="hud-label mb-2">CAPABILITY SIGNAL</div><div className="text-[11px] text-[var(--text-secondary)] leading-relaxed">{entity.website ? <a href={entity.website} target="_blank" rel="noreferrer" className="text-[var(--cyan-primary)] hover:underline">{entity.website}</a> : 'No website listed.'}<br />{awardingAgencies ? `Awarding agencies: ${awardingAgencies}` : `Source: ${entity.source || 'Unknown'}`}</div></div>}
           </div>
           <div className="space-y-4">
             <div>

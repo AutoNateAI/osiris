@@ -560,6 +560,11 @@ const stateNameToCode = {
   texas: 'TX', utah: 'UT', vermont: 'VT', virginia: 'VA', washington: 'WA', 'west virginia': 'WV', wisconsin: 'WI',
   wyoming: 'WY', 'district of columbia': 'DC',
 };
+const placeNameToState = {
+  chicago: 'IL', syracuse: 'NY', buffalo: 'NY', stockton: 'CA', hawaii: 'HI', 'kansas city': 'KS',
+  baltimore: 'MD', boston: 'MA', philadelphia: 'PA', cleveland: 'OH', detroit: 'MI', denver: 'CO',
+  atlanta: 'GA', dallas: 'TX', houston: 'TX', phoenix: 'AZ', seattle: 'WA', portland: 'OR',
+};
 
 function deriveStateFromAward(awardId = '', recipientState = '') {
   if (stateCodes.has(recipientState)) return recipientState;
@@ -569,11 +574,19 @@ function deriveStateFromAward(awardId = '', recipientState = '') {
 
 function inferStateFromText(text = '') {
   const lower = String(text).toLowerCase();
+  const normalized = lower.replace(/\./g, '');
   for (const [name, code] of Object.entries(stateNameToCode)) {
-    if (lower.includes(name)) return code;
+    if (normalized.includes(name)) return code;
   }
-  const codeMatch = lower.match(/\b(AL|AK|AZ|AR|CA|CO|CT|DE|DC|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY)\b/i);
+  for (const [name, code] of Object.entries(placeNameToState)) {
+    if (normalized.includes(name)) return code;
+  }
+  const codeMatch = normalized.match(/\b(AL|AK|AZ|AR|CA|CO|CT|DE|DC|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY)\b/i);
   return codeMatch && stateCodes.has(codeMatch[0].toUpperCase()) ? codeMatch[0].toUpperCase() : '';
+}
+
+function stateCodeFromName(name = '') {
+  return stateNameToCode[String(name).toLowerCase()] || '';
 }
 
 function centroidForState(state) {
@@ -647,6 +660,117 @@ async function clearCollection(collectionName, limit = 10000) {
   }
   if (writes) await batch.commit();
   return snap.size;
+}
+
+async function geocodeOrganizationByName(name) {
+  const queries = [
+    `${name}, United States`,
+    name,
+  ];
+  for (const q of queries) {
+    try {
+      const params = new URLSearchParams({
+        q,
+        format: 'jsonv2',
+        addressdetails: '1',
+        limit: '1',
+        countrycodes: 'us',
+      });
+      const results = await fetchJson(`https://nominatim.openstreetmap.org/search?${params.toString()}`, {
+        signal: AbortSignal.timeout(10000),
+        headers: { 'User-Agent': 'AutoNateAI-Intel/1.0 (https://intel.autonateai.com)' },
+      });
+      const hit = Array.isArray(results) ? results[0] : null;
+      if (!hit) continue;
+      const address = hit.address || {};
+      const state = String(address.state_code || stateCodeFromName(address.state) || inferStateFromText(hit.display_name || '') || '').toUpperCase();
+      const lat = Number(hit.lat);
+      const lng = Number(hit.lon);
+      if (!stateCodes.has(state) || !Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+      return {
+        city: address.city || address.town || address.village || address.hamlet || address.county || capitalForState(state).city,
+        state,
+        county: address.county || '',
+        lat,
+        lng,
+        geocode_display_name: hit.display_name || '',
+        geocode_source: 'OpenStreetMap Nominatim organization search',
+        data_confidence: 78,
+      };
+    } catch (err) {
+      console.warn('[AutoNateAI Intel Functions] Organization geocode failed', name, err instanceof Error ? err.message : err);
+    }
+  }
+  return null;
+}
+
+async function enrichFundedFaithLocations(limit = 100) {
+  const snap = await db.collection('funded_faith_orgs').limit(Math.min(limit, 500)).get();
+  const inferredUpdates = [];
+  const geocodeCandidates = [];
+  for (const doc of snap.docs) {
+    const org = doc.data();
+    const weakLocation = org.state === 'DC' && (!org.city || org.city === 'Washington') && !org.geocode_source;
+    if (!weakLocation) continue;
+    const inferredState = inferStateFromText(org.name || '');
+    if (inferredState && inferredState !== 'DC') {
+      const capital = capitalForState(inferredState);
+      inferredUpdates.push({
+        ref: doc.ref,
+        data: {
+          city: capital.city,
+          state: inferredState,
+          lat: capital.lat,
+          lng: capital.lng,
+          data_confidence: Math.max(Number(org.data_confidence || 0), 62),
+          geocode_source: 'recipient-name state inference',
+          last_updated: new Date().toISOString(),
+        },
+      });
+      continue;
+    }
+    geocodeCandidates.push({ ref: doc.ref, org });
+  }
+  let batch = db.batch();
+  let writes = 0;
+  for (const update of inferredUpdates) {
+    batch.set(update.ref, update.data, { merge: true });
+    writes++;
+    if (writes >= 450) {
+      await batch.commit();
+      batch = db.batch();
+      writes = 0;
+    }
+  }
+  if (writes) await batch.commit();
+
+  const geocodeUpdates = [];
+  for (const { ref, org } of geocodeCandidates.slice(0, 15)) {
+    const geocoded = await geocodeOrganizationByName(org.name);
+    if (geocoded) {
+      geocodeUpdates.push({
+        ref,
+        data: {
+          ...geocoded,
+          last_updated: new Date().toISOString(),
+        },
+      });
+      await new Promise((resolve) => setTimeout(resolve, 1100));
+    }
+  }
+  batch = db.batch();
+  writes = 0;
+  for (const update of geocodeUpdates) {
+    batch.set(update.ref, update.data, { merge: true });
+    writes++;
+    if (writes >= 450) {
+      await batch.commit();
+      batch = db.batch();
+      writes = 0;
+    }
+  }
+  if (writes) await batch.commit();
+  return { scanned: snap.size, inferred: inferredUpdates.length, geocoded: geocodeUpdates.length, updated: inferredUpdates.length + geocodeUpdates.length, remaining_geocode_candidates: Math.max(0, geocodeCandidates.length - 15) };
 }
 
 function normalizeHudAward(row) {
@@ -2360,6 +2484,17 @@ app.all('/api/funded-faith-orgs/update', async (req, res) => {
   } catch (err) {
     console.error('[AutoNateAI Intel Functions] Funded faith org update failed', err);
     res.status(500).json({ error: 'Funded faith org update failed', detail: err instanceof Error ? err.message : 'Unknown error' });
+  }
+});
+
+app.all('/api/funded-faith-orgs/enrich-locations', async (req, res) => {
+  try {
+    const limit = Math.min(Number(req.query.limit || req.body?.limit || 100), 500);
+    const result = await enrichFundedFaithLocations(limit);
+    res.json({ result, timestamp: new Date().toISOString() });
+  } catch (err) {
+    console.error('[AutoNateAI Intel Functions] Funded faith location enrichment failed', err);
+    res.status(500).json({ error: 'Funded faith location enrichment failed', detail: err instanceof Error ? err.message : 'Unknown error' });
   }
 });
 
