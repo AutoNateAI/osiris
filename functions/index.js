@@ -822,7 +822,38 @@ const workforceSubrecipientLocationSeeds = {
   'southeast michigan community alliance inc': { city: 'Taylor', state: 'MI', lat: 42.2409, lng: -83.2697, source: 'known Michigan Works regional operator' },
   'southeast michigan community alliance, inc': { city: 'Taylor', state: 'MI', lat: 42.2409, lng: -83.2697, source: 'known Michigan Works regional operator' },
   'county of macomb': { city: 'Mount Clemens', state: 'MI', lat: 42.5973, lng: -82.8780, source: 'county seat' },
+  'virginia employment commission': { city: 'Richmond', state: 'VA', lat: 37.5407, lng: -77.4360, source: 'state workforce agency' },
+  'city of virginia beach': { city: 'Virginia Beach', state: 'VA', lat: 36.8529, lng: -75.9780, source: 'city centroid' },
+  'county of henrico': { city: 'Henrico', state: 'VA', lat: 37.5059, lng: -77.3324, source: 'county centroid' },
+  'county of pulaski': { city: 'Pulaski', state: 'VA', lat: 37.0479, lng: -80.7798, source: 'county seat' },
+  'southwestern community action council': { city: 'Cedar Bluff', state: 'VA', lat: 37.0876, lng: -81.7657, source: 'known community action region' },
+  'southwestern community action council inc': { city: 'Cedar Bluff', state: 'VA', lat: 37.0876, lng: -81.7657, source: 'known community action region' },
+  'lee county va': { city: 'Jonesville', state: 'VA', lat: 36.6887, lng: -83.1110, source: 'county seat' },
+  'pittsylvania county of': { city: 'Chatham', state: 'VA', lat: 36.8257, lng: -79.3981, source: 'county seat' },
+  'county of richmond': { city: 'Warsaw', state: 'VA', lat: 37.9587, lng: -76.7580, source: 'county seat' },
+  'greater peninsula workforce development consortium': { city: 'Hampton', state: 'VA', lat: 37.0299, lng: -76.3452, source: 'known workforce region' },
+  'city of lynchburg': { city: 'Lynchburg', state: 'VA', lat: 37.4138, lng: -79.1422, source: 'city centroid' },
+  'city of roanoke': { city: 'Roanoke', state: 'VA', lat: 37.2710, lng: -79.9414, source: 'city centroid' },
+  'theskillsource group': { city: 'Vienna', state: 'VA', lat: 38.9012, lng: -77.2653, source: 'known workforce intermediary' },
+  'the skillsource group': { city: 'Vienna', state: 'VA', lat: 38.9012, lng: -77.2653, source: 'known workforce intermediary' },
+  'the skillsource group inc': { city: 'Vienna', state: 'VA', lat: 38.9012, lng: -77.2653, source: 'known workforce intermediary' },
+  'county of charlotte': { city: 'Charlotte Court House', state: 'VA', lat: 37.0568, lng: -78.6383, source: 'county seat' },
+  'city of charlottesville': { city: 'Charlottesville', state: 'VA', lat: 38.0293, lng: -78.4767, source: 'city centroid' },
+  'page county government': { city: 'Luray', state: 'VA', lat: 38.6654, lng: -78.4595, source: 'county seat' },
+  'county of arlington': { city: 'Arlington', state: 'VA', lat: 38.8816, lng: -77.0910, source: 'county centroid' },
+  'city of petersburg': { city: 'Petersburg', state: 'VA', lat: 37.2279, lng: -77.4019, source: 'city centroid' },
+  'county of page virginia': { city: 'Luray', state: 'VA', lat: 38.6654, lng: -78.4595, source: 'county seat' },
+  'peninsula family service': { city: 'Newport News', state: 'VA', lat: 37.0871, lng: -76.4730, source: 'known service area' },
+  'county of prince george': { city: 'Prince George', state: 'VA', lat: 37.2204, lng: -77.2883, source: 'county seat near Hopewell' },
+  'commonwealth of virginia state board of education': { city: 'Richmond', state: 'VA', lat: 37.5407, lng: -77.4360, source: 'state agency' },
+  'city of hopewell': { city: 'Hopewell', state: 'VA', lat: 37.3043, lng: -77.2872, source: 'city centroid' },
+  'hopewell city': { city: 'Hopewell', state: 'VA', lat: 37.3043, lng: -77.2872, source: 'city centroid' },
 };
+
+function workforceSubrecipientSeedForKey(key) {
+  return Object.entries(workforceSubrecipientLocationSeeds)
+    .find(([seedKey]) => normalizeOrgName(seedKey) === key)?.[1] || null;
+}
 
 async function enrichFundedFaithLocations(limit = 100) {
   const snap = await db.collection('funded_faith_orgs').limit(Math.min(limit, 500)).get();
@@ -1738,7 +1769,7 @@ async function fetchWorkforceSubrecipientOrgs(limit = 1000, state = '') {
 
   const records = [];
   for (const [key, sub] of subrecipientMap.entries()) {
-    const seeded = workforceSubrecipientLocationSeeds[key];
+    const seeded = workforceSubrecipientSeedForKey(key);
     const geocoded = seeded || null;
     if (state && geocoded?.state && geocoded.state !== state) continue;
     const fallback = capitalForState(state);
