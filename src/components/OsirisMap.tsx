@@ -1041,19 +1041,52 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
 
   useEffect(() => {
     if (!mapReady) return;
-    const toCapabilityFeatures = (items: any[], type: string) => (Array.isArray(items) ? items : [])
-      .filter((item: any) => Number.isFinite(Number(item.lng)) && Number.isFinite(Number(item.lat)))
-      .map((item: any) => ({
+    const spreadStackedPoints = (items: any[], shouldSpread = false) => {
+      const plottable = (Array.isArray(items) ? items : [])
+        .filter((item: any) => Number.isFinite(Number(item.lng)) && Number.isFinite(Number(item.lat)));
+      if (!shouldSpread) return plottable.map((item: any) => ({ item, lat: Number(item.lat), lng: Number(item.lng), stack_count: 1, stack_index: 0 }));
+
+      const stacks = new Map<string, any[]>();
+      plottable.forEach((item: any) => {
+        const key = `${Number(item.lat).toFixed(4)},${Number(item.lng).toFixed(4)}`;
+        stacks.set(key, [...(stacks.get(key) || []), item]);
+      });
+
+      const goldenAngle = Math.PI * (3 - Math.sqrt(5));
+      return plottable.map((item: any) => {
+        const key = `${Number(item.lat).toFixed(4)},${Number(item.lng).toFixed(4)}`;
+        const stack = stacks.get(key) || [item];
+        const stack_index = stack.findIndex((candidate: any) => (candidate.id || candidate.name) === (item.id || item.name));
+        const safeIndex = Math.max(0, stack_index);
+        if (stack.length === 1) return { item, lat: Number(item.lat), lng: Number(item.lng), stack_count: 1, stack_index: 0 };
+
+        const angle = safeIndex * goldenAngle;
+        const radius = Math.min(0.9, 0.035 * Math.sqrt(safeIndex + 1));
+        return {
+          item,
+          lat: Number(item.lat) + Math.sin(angle) * radius,
+          lng: Number(item.lng) + Math.cos(angle) * radius,
+          stack_count: stack.length,
+          stack_index: safeIndex,
+        };
+      });
+    };
+    const toCapabilityFeatures = (items: any[], type: string, shouldSpread = false) => spreadStackedPoints(items, shouldSpread)
+      .map(({ item, lat, lng, stack_count, stack_index }: any) => ({
         type: 'Feature',
-        geometry: { type: 'Point', coordinates: [Number(item.lng), Number(item.lat)] },
+        geometry: { type: 'Point', coordinates: [lng, lat] },
         properties: {
           ...item,
           type,
+          display_lat: lat,
+          display_lng: lng,
+          stack_count,
+          stack_index,
           node_weight: Number(item.student_size || item.award_count || item.total_obligations || item.data_confidence || 1),
         },
       }));
     setGeo('education-orgs', activeLayers.education_orgs ? toCapabilityFeatures(data.education_orgs, 'education_org') : []);
-    setGeo('workforce-orgs', activeLayers.workforce_orgs ? toCapabilityFeatures(data.workforce_orgs, 'workforce_org') : []);
+    setGeo('workforce-orgs', activeLayers.workforce_orgs ? toCapabilityFeatures(data.workforce_orgs, 'workforce_org', true) : []);
     setGeo('health-orgs', activeLayers.health_orgs ? toCapabilityFeatures(data.health_orgs, 'health_org') : []);
     setGeo('funded-faith-orgs', activeLayers.funded_faith_orgs ? toCapabilityFeatures(data.funded_faith_orgs, 'funded_faith_org') : []);
   }, [mapReady, data.education_orgs, data.workforce_orgs, data.health_orgs, data.funded_faith_orgs, activeLayers.education_orgs, activeLayers.workforce_orgs, activeLayers.health_orgs, activeLayers.funded_faith_orgs, setGeo]);
