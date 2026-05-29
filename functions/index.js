@@ -1609,6 +1609,41 @@ app.get('/api/hud-pha-flows', cache(300000, async (req) => {
   };
 }));
 
+app.get('/api/sbir-recipients', cache(300000, async (req) => {
+  const state = req.query.state ? String(req.query.state).toUpperCase() : '';
+  const limit = Math.min(Number(req.query.limit || 20000), 25000);
+  let query = db.collection('sbir_recipients').orderBy('total_awarded', 'desc').limit(limit);
+  if (state && stateCodes.has(state)) {
+    query = db.collection('sbir_recipients').where('state_code', '==', state).orderBy('total_awarded', 'desc').limit(limit);
+  }
+  const snap = await query.get();
+  const recipients = snap.docs.map((doc) => doc.data());
+  const stateTotals = {};
+  for (const recipient of recipients) {
+    const code = recipient.state_code || 'NA';
+    const bucket = stateTotals[code] || {
+      state_code: code,
+      state_name: code,
+      recipient_count: 0,
+      award_count: 0,
+      total_awarded: 0,
+      ...centroidForState(code),
+    };
+    bucket.recipient_count += 1;
+    bucket.award_count += Number(recipient.award_count || 0);
+    bucket.total_awarded += Number(recipient.total_awarded || 0);
+    stateTotals[code] = bucket;
+  }
+  return {
+    recipients,
+    state_totals: Object.values(stateTotals),
+    total_recipients: recipients.length,
+    since: '2010-01-01',
+    source: 'SBIR.gov bulk awards via Public Funding Intelligence',
+    timestamp: new Date().toISOString(),
+  };
+}));
+
 app.all('/api/hud-pha-flows/update', async (req, res) => {
   try {
     const today = new Date();

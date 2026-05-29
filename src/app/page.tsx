@@ -100,11 +100,16 @@ function money(value: any) {
 function EntityDetailModal({ entity, onClose }: { entity: any; onClose: () => void }) {
   if (!entity) return null;
   const isPha = entity.type === 'hud_pha';
+  const isSbir = entity.type === 'sbir_recipient';
   const rows = isPha
     ? [['Participant Code', entity.participant_code], ['State', entity.state], ['Program Type', entity.program_type || 'Not specified'], ['Total Units', Number(entity.total_units || 0).toLocaleString()], ['Section 8 Units', Number(entity.section8_units || 0).toLocaleString()], ['USAspending Awards', Number(entity.award_count || 0).toLocaleString()], ['USAspending Total', money(entity.total_amount)], ['Latest Award', entity.latest_award_date || 'No matched award'], ['Spend Window', entity.spend_window_days ? `${Number(entity.spend_window_days).toLocaleString()} days` : 'Unknown'], ['Flow Score', entity.flow_score ?? 'N/A']]
+    : isSbir
+    ? [['City', `${entity.city || 'Unknown'}, ${entity.state_code || ''}`], ['Total Awarded', money(entity.total_awarded)], ['Recent Awarded', money(entity.recent_awarded)], ['Award Count', Number(entity.award_count || 0).toLocaleString()], ['Agencies', entity.agencies || 'Unknown'], ['Phases', entity.phases || 'Unknown'], ['First Award', entity.first_award_date || 'Unknown'], ['Latest Award', entity.latest_award_date || 'Unknown'], ['Active Years', Number(entity.active_award_years || 0).toLocaleString()], ['Website', entity.company_website || 'Unknown']]
     : [['Branch', entity.branch], ['Role', entity.role], ['Chamber', entity.chamber || 'N/A'], ['State', entity.state], ['Party', entity.party || 'Nonpartisan/Unknown'], ['District', entity.district ?? 'Statewide/N/A']];
   const bars = isPha
     ? [['Recency', Number(entity.recency_score || 0), '#00E676'], ['Flow Score', Number(entity.flow_score || 0), '#00AEEF'], ['HUD OpFund', Number(entity.opfund_amount || 0), '#76FF03'], ['Award Count', Math.min(Number(entity.award_count || 0) * 8, 100), '#D4AF37']]
+    : isSbir
+    ? [['Opportunity Score', Number(entity.opportunity_score || 0), '#F2C94C'], ['Recent Flow', Math.min(Number(entity.recent_awarded || 0) / 50000, 100), '#00E676'], ['Total Flow', Math.min(Number(entity.total_awarded || 0) / 250000, 100), '#00AEEF'], ['Awards', Math.min(Number(entity.award_count || 0) * 4, 100), '#B388FF']]
     : [['Influence Node', entity.branch === 'white_house' ? 100 : entity.branch === 'judicial' ? 80 : 60, entity.party === 'Republican' ? '#EB5757' : entity.party === 'Democrat' ? '#2F80ED' : '#FFFFFF']];
   const maxBar = Math.max(...bars.map(([, v]) => Number(v)), 1);
 
@@ -113,9 +118,9 @@ function EntityDetailModal({ entity, onClose }: { entity: any; onClose: () => vo
       <motion.div initial={{ scale: 0.96, y: 12 }} animate={{ scale: 1, y: 0 }} className="glass-panel osiris-glow w-full max-w-3xl max-h-[86vh] overflow-y-auto styled-scrollbar">
         <div className="flex items-start justify-between gap-4 p-5 border-b border-[var(--border-secondary)]">
           <div>
-            <div className="hud-label mb-1">{isPha ? 'HUD PUBLIC HOUSING AGENCY' : 'FEDERAL POWER NODE'}</div>
+            <div className="hud-label mb-1">{isPha ? 'HUD PUBLIC HOUSING AGENCY' : isSbir ? 'SBIR/STTR RECIPIENT' : 'FEDERAL POWER NODE'}</div>
             <h2 className="text-lg font-mono font-bold text-[var(--text-primary)] tracking-wide">{entity.name}</h2>
-            <p className="text-[10px] text-[var(--text-muted)] mt-1">{isPha ? 'HUD roster details enriched with USAspending award totals where award identifiers match the agency code.' : 'Political authority plotted by represented state or institutional seat for comparison against HUD funding flows.'}</p>
+            <p className="text-[10px] text-[var(--text-muted)] mt-1">{isPha ? 'HUD roster details enriched with USAspending award totals where award identifiers match the agency code.' : isSbir ? 'Small business innovation recipients plotted from SBIR.gov awards since 2010, grouped by company and recipient city.' : 'Political authority plotted by represented state or institutional seat for comparison against HUD funding flows.'}</p>
           </div>
           <button onClick={onClose} className="p-2 rounded hover:bg-red-900/30 transition-colors"><X className="w-4 h-4" /></button>
         </div>
@@ -133,20 +138,21 @@ function EntityDetailModal({ entity, onClose }: { entity: any; onClose: () => vo
               </div>
             </div>
             {isPha && <div><div className="hud-label mb-2">ADDRESS / CONTACT</div><div className="text-[11px] text-[var(--text-secondary)] leading-relaxed">{[entity.address, entity.city, entity.state, entity.zip].filter(Boolean).join(', ') || 'No address in roster.'}<br />{entity.email || 'No email listed'} · {entity.phone || 'No phone listed'}</div></div>}
+            {isSbir && <div><div className="hud-label mb-2">LOCAL SMB SIGNAL</div><div className="text-[11px] text-[var(--text-secondary)] leading-relaxed">{entity.company_website ? <a href={entity.company_website} target="_blank" rel="noreferrer" className="text-[var(--cyan-primary)] hover:underline">{entity.company_website}</a> : 'No website listed in SBIR bulk data.'}<br />{entity.latest_contract_end_date ? `Latest contract end: ${entity.latest_contract_end_date}` : 'No contract end date listed.'}</div></div>}
           </div>
           <div className="space-y-4">
             <div>
-              <div className="hud-label mb-2">{isPha ? 'FUNDING PROFILE' : 'POWER PROFILE'}</div>
+              <div className="hud-label mb-2">{isPha || isSbir ? 'FUNDING PROFILE' : 'POWER PROFILE'}</div>
               <div className="space-y-2">
                 {bars.map(([label, value, color]) => (
                   <div key={label as string}>
-                    <div className="flex justify-between text-[10px] mb-1"><span>{label}</span><span>{isPha ? money(value) : value}</span></div>
+                    <div className="flex justify-between text-[10px] mb-1"><span>{label}</span><span>{value}</span></div>
                     <div className="h-2 bg-white/10 rounded overflow-hidden"><div className="h-full" style={{ width: `${Math.max(3, (Number(value) / maxBar) * 100)}%`, backgroundColor: color as string }} /></div>
                   </div>
                 ))}
               </div>
             </div>
-            <div className="rounded border border-[var(--border-secondary)] p-3"><div className="hud-label mb-2">INTERPRETATION</div><p className="text-[10px] text-[var(--text-secondary)] leading-relaxed">{isPha ? 'This point is the HUD agency roster coordinate. Funding bars combine roster profile fields and matched USAspending totals, so historical backfills will make the USAspending side richer over time.' : 'Power Loop Edges draw party-colored links from congressional nodes to HUD flow centers for the same state, making oversight and funding geography visible together.'}</p></div>
+            <div className="rounded border border-[var(--border-secondary)] p-3"><div className="hud-label mb-2">INTERPRETATION</div><p className="text-[10px] text-[var(--text-secondary)] leading-relaxed">{isPha ? 'This point is the HUD agency roster coordinate. Funding bars combine roster profile fields and matched USAspending totals, so historical backfills will make the USAspending side richer over time.' : isSbir ? `${entity.name} has received ${money(entity.total_awarded)} across ${Number(entity.award_count || 0).toLocaleString()} SBIR/STTR awards since 2010. The marker emphasizes recent award activity, total dollars, active award years, and whether the company appears to still have funded work in motion.` : 'Power Loop Edges draw party-colored links from congressional nodes to HUD flow centers for the same state, making oversight and funding geography visible together.'}</p></div>
           </div>
         </div>
       </motion.div>
@@ -207,6 +213,7 @@ export default function Dashboard() {
     radiation: false,
     infrastructure: false,
     hud_pha_flows: false,
+    sbir_recipients: false,
     federal_power: true,
     power_edges: true,
     global_incidents: true,
@@ -346,7 +353,7 @@ export default function Dashboard() {
   // Entity click handler (hoisted from JSX to comply with Rules of Hooks — Fixes #113)
   const handleEntityClick = useCallback((entity: any) => {
     if (entity?.type === 'cctv') setActiveCamera(entity);
-    if (entity?.type === 'hud_pha' || entity?.type === 'federal_power') setDetailEntity(entity);
+    if (entity?.type === 'hud_pha' || entity?.type === 'federal_power' || entity?.type === 'sbir_recipient') setDetailEntity(entity);
     if (entity?.type === 'live_news' && entity.url) {
       setLiveFeedUrl(entity.url);
       setLiveFeedName(entity.name);
@@ -459,6 +466,10 @@ export default function Dashboard() {
     if (activeLayers.hud_pha_flows && !layerFetchedRef.current.has('hud_pha_flows')) {
       fetchEndpoint('/api/hud-pha-flows', d => ({ hud_phas: d.phas, hud_pha_awards: d.awards, hud_state_totals: d.state_totals }));
       layerFetchedRef.current.add('hud_pha_flows');
+    }
+    if (activeLayers.sbir_recipients && !layerFetchedRef.current.has('sbir_recipients')) {
+      fetchEndpoint('/api/sbir-recipients', d => ({ sbir_recipients: d.recipients, sbir_state_totals: d.state_totals }));
+      layerFetchedRef.current.add('sbir_recipients');
     }
     if (activeLayers.federal_power && !layerFetchedRef.current.has('federal_power')) {
       fetchEndpoint('/api/federal-power', d => ({ federal_power: d.people }));

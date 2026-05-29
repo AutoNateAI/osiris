@@ -113,7 +113,7 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
       createDot(map, 'dot-cctv', '#39FF14', 10);
 
       // Sources
-      const sources = ['flights','military','jets','private-fl','satellites','earthquakes','gdelt','gps-jamming','day-night','cctv','fires','weather','infrastructure','hud-pha-flows','federal-power','power-edges','maritime','maritime-choke','maritime-ships','live-news','sigint-news','conflict-zones', 'war-alerts-targets', 'war-alerts-lines', 'balloons', 'radiation', 'ip-sweep-devices', 'ip-sweep-pulse', 'ip-sweep-connections', 'scan-targets'];
+      const sources = ['flights','military','jets','private-fl','satellites','earthquakes','gdelt','gps-jamming','day-night','cctv','fires','weather','infrastructure','hud-pha-flows','sbir-recipients','federal-power','power-edges','maritime','maritime-choke','maritime-ships','live-news','sigint-news','conflict-zones', 'war-alerts-targets', 'war-alerts-lines', 'balloons', 'radiation', 'ip-sweep-devices', 'ip-sweep-pulse', 'ip-sweep-connections', 'scan-targets'];
       sources.forEach(s => map.addSource(s, { type: 'geojson', data: EMPTY_FC }));
 
       map.addSource('country-color-areas', { type: 'geojson', data: COUNTRY_GEOJSON_URL });
@@ -312,6 +312,25 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
         'text-field': ['get','name'], 'text-size': 9, 'text-font': ['Open Sans Bold'],
         'text-offset': [0, 1.8], 'text-allow-overlap': false,
       }, paint: { 'text-color': '#E6F7FF', 'text-halo-color': '#001018', 'text-halo-width': 1 }});
+
+      map.addLayer({ id: 'sbir-recipient-glow', type: 'circle', source: 'sbir-recipients', paint: {
+        'circle-radius': ['interpolate',['linear'],['get','opportunity_score'], 0,5, 35,12, 70,22, 100,34],
+        'circle-color': ['match', ['get','activity_bucket'], 'hot','#00E676', 'warm','#F2C94C', 'steady','#00AEEF', 'dormant','#6B7280', '#F2C94C'],
+        'circle-opacity': ['interpolate',['linear'],['zoom'], 1,0.16, 4,0.1, 8,0.03],
+        'circle-blur': 1.1,
+      }});
+      map.addLayer({ id: 'sbir-recipient-dots', type: 'circle', source: 'sbir-recipients', paint: {
+        'circle-radius': ['interpolate',['linear'],['get','total_awarded'], 0,2.5, 250000,4, 1000000,7, 5000000,12, 20000000,18],
+        'circle-color': ['match', ['get','activity_bucket'], 'hot','#00E676', 'warm','#F2C94C', 'steady','#00AEEF', 'dormant','#6B7280', '#F2C94C'],
+        'circle-opacity': ['interpolate',['linear'],['get','recency_score'], 0,0.26, 50,0.55, 100,0.82],
+        'circle-stroke-width': ['interpolate',['linear'],['get','award_count'], 1,0.7, 10,1.6, 50,2.8],
+        'circle-stroke-color': '#FFF7CC',
+        'circle-stroke-opacity': 0.72,
+      }});
+      map.addLayer({ id: 'sbir-recipient-label', type: 'symbol', source: 'sbir-recipients', minzoom: 6, layout: {
+        'text-field': ['get','name'], 'text-size': 9, 'text-font': ['Open Sans Bold'],
+        'text-offset': [0, 1.5], 'text-allow-overlap': false,
+      }, paint: { 'text-color': '#FFF7CC', 'text-halo-color': '#100F08', 'text-halo-width': 1 }});
 
       map.addLayer({ id: 'power-dots', type: 'circle', source: 'federal-power', paint: {
         'circle-radius': ['match', ['get','branch'], 'white_house', 8, 'judicial', 7, 5],
@@ -846,13 +865,19 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
       onEntityClick?.({ ...p, type: 'hud_pha' });
     });
 
+    map.on('click', 'sbir-recipient-dots', e => {
+      const p = e.features?.[0]?.properties;
+      if (!p) return;
+      onEntityClick?.({ ...p, type: 'sbir_recipient' });
+    });
+
     map.on('click', 'power-dots', e => {
       const p = e.features?.[0]?.properties;
       if (!p) return;
       onEntityClick?.({ ...p, type: 'federal_power' });
     });
 
-    ['hud-pha-bubbles', 'power-dots'].forEach(layer => {
+    ['hud-pha-bubbles', 'sbir-recipient-dots', 'power-dots'].forEach(layer => {
       map.on('mouseenter', layer, () => { map.getCanvas().style.cursor = 'pointer'; });
       map.on('mouseleave', layer, () => { map.getCanvas().style.cursor = ''; });
     });
@@ -949,6 +974,14 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
       .filter((p: any) => Number.isFinite(Number(p.lng)) && Number.isFinite(Number(p.lat)))
       .map((p: any) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [Number(p.lng), Number(p.lat)] }, properties: { ...p, type: 'hud_pha' } })) : []);
   }, [mapReady, data.hud_phas, activeLayers.hud_pha_flows, setGeo]);
+
+  useEffect(() => {
+    if (!mapReady) return;
+    const recipients = Array.isArray(data.sbir_recipients) ? data.sbir_recipients : [];
+    setGeo('sbir-recipients', activeLayers.sbir_recipients ? recipients
+      .filter((r: any) => Number.isFinite(Number(r.lng)) && Number.isFinite(Number(r.lat)))
+      .map((r: any) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [Number(r.lng), Number(r.lat)] }, properties: { ...r, type: 'sbir_recipient' } })) : []);
+  }, [mapReady, data.sbir_recipients, activeLayers.sbir_recipients, setGeo]);
 
   useEffect(() => {
     if (!mapReady) return;
@@ -1104,6 +1137,7 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
     setVis(['weather-glow','weather-dots','weather-label'], activeLayers.weather);
     setVis(['infra-glow','infra-dots','infra-label'], activeLayers.infrastructure);
     setVis(['hud-pha-bubbles','hud-pha-label'], activeLayers.hud_pha_flows);
+    setVis(['sbir-recipient-glow','sbir-recipient-dots','sbir-recipient-label'], activeLayers.sbir_recipients);
     setVis(['power-dots','power-label'], activeLayers.federal_power);
     setVis(['power-edge-glow','power-edge-lines'], activeLayers.power_edges);
     setVis(['maritime-glow','maritime-dots','maritime-label'], activeLayers.maritime);

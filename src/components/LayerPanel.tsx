@@ -7,6 +7,7 @@ import {
   Shield, Sun, AlertTriangle, Camera, Flame, Target,
   CloudLightning, Radiation, Tv, Anchor, Ship, Newspaper,
   ChevronDown, ChevronUp, ToggleLeft, ToggleRight, Landmark, Users,
+  BriefcaseBusiness,
 } from 'lucide-react';
 
 interface LayerPanelProps {
@@ -62,6 +63,7 @@ const LAYER_GROUPS = [
     layers: [
       { key: 'infrastructure', label: 'Nuclear Facilities', icon: Radiation, color: '#76FF03', dataKey: 'infrastructure' },
       { key: 'hud_pha_flows', label: 'HUD PHA Flows', icon: Landmark, color: '#00AEEF', dataKey: 'hud_phas,hud_pha_awards,hud_state_totals' },
+      { key: 'sbir_recipients', label: 'SBIR/STTR Recipients', icon: BriefcaseBusiness, color: '#F2C94C', dataKey: 'sbir_recipients' },
       { key: 'federal_power', label: 'Federal Power', icon: Users, color: '#FFFFFF', dataKey: 'federal_power' },
       { key: 'power_edges', label: 'Power Loop Edges', icon: Radio, color: '#B388FF', dataKey: '' },
       { key: 'global_incidents', label: 'Global Incidents', icon: AlertTriangle, color: '#FF3D3D', dataKey: 'gdelt' },
