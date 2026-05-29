@@ -3,9 +3,13 @@ import crypto from 'crypto';
 import express from 'express';
 import { initializeApp } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
+import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { onRequest } from 'firebase-functions/v2/https';
+import { onSchedule } from 'firebase-functions/v2/scheduler';
+import YAML from 'yaml';
 
 initializeApp();
+const db = getFirestore();
 
 const allowedOrigins = new Set([
   'http://localhost:3002',
@@ -507,6 +511,181 @@ async function fetchAsiaCameras() {
   } catch {
     return [];
   }
+}
+
+const stateCentroids = {
+  AL: [32.8067, -86.7911], AK: [61.3707, -152.4044], AZ: [33.7298, -111.4312], AR: [34.9697, -92.3731],
+  CA: [36.1162, -119.6816], CO: [39.0598, -105.3111], CT: [41.5978, -72.7554], DE: [39.3185, -75.5071],
+  DC: [38.9072, -77.0369], FL: [27.7663, -81.6868], GA: [33.0406, -83.6431], HI: [21.0943, -157.4983],
+  ID: [44.2405, -114.4788], IL: [40.3495, -88.9861], IN: [39.8494, -86.2583], IA: [42.0115, -93.2105],
+  KS: [38.5266, -96.7265], KY: [37.6681, -84.6701], LA: [31.1695, -91.8678], ME: [44.6939, -69.3819],
+  MD: [39.0639, -76.8021], MA: [42.2302, -71.5301], MI: [43.3266, -84.5361], MN: [45.6945, -93.9002],
+  MS: [32.7416, -89.6787], MO: [38.4561, -92.2884], MT: [46.9219, -110.4544], NE: [41.1254, -98.2681],
+  NV: [38.3135, -117.0554], NH: [43.4525, -71.5639], NJ: [40.2989, -74.5210], NM: [34.8405, -106.2485],
+  NY: [42.1657, -74.9481], NC: [35.6301, -79.8064], ND: [47.5289, -99.7840], OH: [40.3888, -82.7649],
+  OK: [35.5653, -96.9289], OR: [44.5720, -122.0709], PA: [40.5908, -77.2098], RI: [41.6809, -71.5118],
+  SC: [33.8569, -80.9450], SD: [44.2998, -99.4388], TN: [35.7478, -86.6923], TX: [31.0545, -97.5635],
+  UT: [40.1500, -111.8624], VT: [44.0459, -72.7107], VA: [37.7693, -78.1700], WA: [47.4009, -121.4905],
+  WV: [38.4912, -80.9545], WI: [44.2685, -89.6165], WY: [42.7560, -107.3025],
+};
+
+const stateCodes = new Set(Object.keys(stateCentroids));
+
+function deriveStateFromAward(awardId = '', recipientState = '') {
+  if (stateCodes.has(recipientState)) return recipientState;
+  const prefix = String(awardId).slice(0, 2).toUpperCase();
+  return stateCodes.has(prefix) ? prefix : 'DC';
+}
+
+function centroidForState(state) {
+  const [lat, lng] = stateCentroids[state] || stateCentroids.DC;
+  return { lat, lng };
+}
+
+function normalizeHudAward(row) {
+  const awardId = row['Award ID'] || row.generated_internal_id || String(row.internal_id || crypto.randomUUID());
+  const state = deriveStateFromAward(awardId, row['Recipient State']);
+  const coords = centroidForState(state);
+  return {
+    id: md5(`hud:${awardId}:${row['Start Date'] || ''}:${row['Award Amount'] || 0}`),
+    award_id: awardId,
+    recipient_name: row['Recipient Name'] || 'Unknown PHA',
+    recipient_city: row['Recipient City'] || '',
+    recipient_state: state,
+    recipient_zip: row['Recipient ZIP Code'] || '',
+    start_date: row['Start Date'] || '',
+    end_date: row['End Date'] || '',
+    amount: Number(row['Award Amount'] || 0),
+    awarding_agency: row['Awarding Agency'] || '',
+    awarding_subagency: row['Awarding Sub Agency'] || '',
+    funding_agency: row['Funding Agency'] || '',
+    funding_subagency: row['Funding Sub Agency'] || '',
+    award_type: row['Award Type'] || '',
+    cfda_number: row['CFDA Number'] || '',
+    program_title: row['CFDA Program Title'] || row['Funding Sub Agency'] || 'HUD Program',
+    lat: coords.lat,
+    lng: coords.lng,
+    source: 'USAspending',
+    updated_at: new Date().toISOString(),
+  };
+}
+
+async function searchHudPhaAwards(startDate, endDate, limit = 100, maxPages = 3) {
+  const awards = [];
+  for (let page = 1; page <= maxPages; page++) {
+    const body = {
+      filters: {
+        award_type_codes: ['02', '03', '04', '05'],
+        time_period: [{ start_date: startDate, end_date: endDate }],
+        agencies: [{ type: 'funding', tier: 'toptier', name: 'Department of Housing and Urban Development' }],
+        keyword: 'housing authority',
+      },
+      fields: ['Award ID', 'Recipient Name', 'Recipient City', 'Recipient State', 'Recipient ZIP Code', 'Start Date', 'End Date', 'Award Amount', 'Awarding Agency', 'Awarding Sub Agency', 'Funding Agency', 'Funding Sub Agency', 'Award Type', 'CFDA Number', 'CFDA Program Title'],
+      sort: 'Start Date',
+      order: 'desc',
+      limit,
+      page,
+    };
+    const data = await fetchJson('https://api.usaspending.gov/api/v2/search/spending_by_award/', {
+      method: 'POST',
+      signal: AbortSignal.timeout(20000),
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const results = data.results || [];
+    awards.push(...results.map(normalizeHudAward));
+    if (!results.length || !data.page_metadata?.hasNext) break;
+  }
+  return awards;
+}
+
+async function persistHudAwards(awards) {
+  let batch = db.batch();
+  let writes = 0;
+  const phaTotals = new Map();
+  for (const award of awards) {
+    batch.set(db.collection('hud_pha_awards').doc(award.id), award, { merge: true });
+    writes++;
+    const phaId = md5(`${award.recipient_name}:${award.recipient_state}`);
+    const current = phaTotals.get(phaId) || {
+      id: phaId,
+      name: award.recipient_name,
+      state: award.recipient_state,
+      lat: award.lat,
+      lng: award.lng,
+      total_amount: 0,
+      award_count: 0,
+      programs: {},
+      latest_award_date: award.start_date,
+      updated_at: new Date().toISOString(),
+    };
+    current.total_amount += award.amount;
+    current.award_count += 1;
+    current.programs[award.cfda_number || award.program_title || 'unknown'] = award.program_title || award.cfda_number || 'HUD Program';
+    if ((award.start_date || '') > (current.latest_award_date || '')) current.latest_award_date = award.start_date;
+    phaTotals.set(phaId, current);
+    if (writes >= 450) {
+      await batch.commit();
+      batch = db.batch();
+      writes = 0;
+    }
+  }
+  for (const pha of phaTotals.values()) {
+    batch.set(db.collection('hud_phas').doc(pha.id), {
+      id: pha.id,
+      name: pha.name,
+      state: pha.state,
+      lat: pha.lat,
+      lng: pha.lng,
+      total_amount: FieldValue.increment(pha.total_amount),
+      award_count: FieldValue.increment(pha.award_count),
+      programs: pha.programs,
+      latest_award_date: pha.latest_award_date,
+      updated_at: pha.updated_at,
+    }, { merge: true });
+    writes++;
+    if (writes >= 450) {
+      await batch.commit();
+      batch = db.batch();
+      writes = 0;
+    }
+  }
+  if (writes) await batch.commit();
+}
+
+async function updatePowerMap() {
+  const legislatorsYaml = await fetchText('https://raw.githubusercontent.com/unitedstates/congress-legislators/main/legislators-current.yaml', { signal: AbortSignal.timeout(20000) }).catch(() => '');
+  const legislators = legislatorsYaml ? YAML.parse(legislatorsYaml) : [];
+  const people = [];
+  for (const leg of legislators || []) {
+    const term = leg.terms?.[leg.terms.length - 1] || {};
+    const state = term.state || 'DC';
+    const coords = centroidForState(state);
+    people.push({
+      id: `congress-${leg.id?.bioguide}`,
+      name: [leg.name?.official_full || `${leg.name?.first || ''} ${leg.name?.last || ''}`.trim()][0],
+      branch: 'congress',
+      chamber: term.type === 'sen' ? 'Senate' : 'House',
+      party: term.party || '',
+      state,
+      district: term.district ?? null,
+      role: term.type === 'sen' ? 'U.S. Senator' : 'U.S. Representative',
+      lat: coords.lat,
+      lng: coords.lng,
+      source: 'unitedstates/congress-legislators',
+      updated_at: new Date().toISOString(),
+    });
+  }
+  const staticPower = [
+    { id: 'whitehouse-president', name: 'Donald J. Trump', branch: 'white_house', role: 'President', party: 'Republican', state: 'DC' },
+    { id: 'whitehouse-vice-president', name: 'JD Vance', branch: 'white_house', role: 'Vice President', party: 'Republican', state: 'DC' },
+    ...['John G. Roberts, Jr.', 'Clarence Thomas', 'Samuel A. Alito, Jr.', 'Sonia Sotomayor', 'Elena Kagan', 'Neil M. Gorsuch', 'Brett M. Kavanaugh', 'Amy Coney Barrett', 'Ketanji Brown Jackson'].map((name) => ({ id: `scotus-${md5(name).slice(0, 10)}`, name, branch: 'judicial', role: name.includes('Roberts') ? 'Chief Justice' : 'Associate Justice', party: '', state: 'DC' })),
+  ].map((person) => ({ ...person, ...centroidForState(person.state), source: 'official/static seed', updated_at: new Date().toISOString() }));
+  people.push(...staticPower);
+  let batch = db.batch();
+  people.forEach((person) => batch.set(db.collection('federal_power').doc(person.id), person, { merge: true }));
+  await batch.commit();
+  return people.length;
 }
 
 const flightRegions = [
@@ -1276,6 +1455,71 @@ app.get('/api/region-dossier', cache(3600000, async (req) => {
   };
 }));
 
+app.get('/api/hud-pha-flows', cache(300000, async (req) => {
+  const state = req.query.state ? String(req.query.state).toUpperCase() : '';
+  let phaQuery = db.collection('hud_phas').orderBy('total_amount', 'desc').limit(1000);
+  if (state && stateCodes.has(state)) phaQuery = db.collection('hud_phas').where('state', '==', state).orderBy('total_amount', 'desc').limit(1000);
+  const [phaSnap, awardSnap] = await Promise.all([
+    phaQuery.get(),
+    db.collection('hud_pha_awards').orderBy('start_date', 'desc').limit(250).get(),
+  ]);
+  const phas = phaSnap.docs.map((doc) => doc.data());
+  const awards = awardSnap.docs.map((doc) => doc.data()).filter((award) => !state || award.recipient_state === state);
+  const stateTotals = {};
+  for (const pha of phas) {
+    const bucket = stateTotals[pha.state] || { state: pha.state, total_amount: 0, pha_count: 0, award_count: 0, ...centroidForState(pha.state) };
+    bucket.total_amount += Number(pha.total_amount || 0);
+    bucket.pha_count += 1;
+    bucket.award_count += Number(pha.award_count || 0);
+    stateTotals[pha.state] = bucket;
+  }
+  return {
+    phas,
+    awards,
+    state_totals: Object.values(stateTotals),
+    total_phas: phas.length,
+    total_awards: awards.length,
+    timestamp: new Date().toISOString(),
+  };
+}));
+
+app.all('/api/hud-pha-flows/update', async (req, res) => {
+  try {
+    const today = new Date();
+    const yesterday = new Date(today.getTime() - 86400000);
+    const start = req.query.start || req.body?.start || yesterday.toISOString().slice(0, 10);
+    const end = req.query.end || req.body?.end || yesterday.toISOString().slice(0, 10);
+    const limit = Math.min(Number(req.query.limit || req.body?.limit || 100), 100);
+    const pages = Math.min(Number(req.query.pages || req.body?.pages || 3), 10);
+    const awards = await searchHudPhaAwards(start, end, limit, pages);
+    await persistHudAwards(awards);
+    res.json({ inserted_or_updated: awards.length, start, end, timestamp: new Date().toISOString() });
+  } catch (err) {
+    console.error('[AutoNateAI Intel Functions] HUD PHA update failed', err);
+    res.status(500).json({ error: 'HUD PHA update failed', detail: err instanceof Error ? err.message : 'Unknown error' });
+  }
+});
+
+app.get('/api/federal-power', cache(86400000, async () => {
+  let snap = await db.collection('federal_power').limit(700).get();
+  if (snap.empty) {
+    await updatePowerMap();
+    snap = await db.collection('federal_power').limit(700).get();
+  }
+  const people = snap.docs.map((doc) => doc.data());
+  return { people, total: people.length, timestamp: new Date().toISOString() };
+}));
+
+app.all('/api/federal-power/update', async (_req, res) => {
+  try {
+    const count = await updatePowerMap();
+    res.json({ inserted_or_updated: count, timestamp: new Date().toISOString() });
+  } catch (err) {
+    console.error('[AutoNateAI Intel Functions] Federal power update failed', err);
+    res.status(500).json({ error: 'Federal power update failed', detail: err instanceof Error ? err.message : 'Unknown error' });
+  }
+});
+
 app.get('/api/balloons', cache(300000, async () => ({ balloons: [], total: 0, timestamp: new Date().toISOString() })));
 
 app.get('/api/radiation', cache(300000, async () => ({ stations: [], total: 0, timestamp: new Date().toISOString() })));
@@ -1313,3 +1557,18 @@ export const intelApi = onRequest({
   serviceAccount: 'firebase-adminsdk-fbsvc@autonateai-learning-hub.iam.gserviceaccount.com',
   cors: false,
 }, app);
+
+export const dailyHudPhaPull = onSchedule({
+  region: 'us-central1',
+  schedule: '15 8 * * *',
+  timeZone: 'America/New_York',
+  timeoutSeconds: 540,
+  memory: '512MiB',
+  serviceAccount: 'firebase-adminsdk-fbsvc@autonateai-learning-hub.iam.gserviceaccount.com',
+}, async () => {
+  const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+  const awards = await searchHudPhaAwards(yesterday, yesterday, 100, 10);
+  await persistHudAwards(awards);
+  await updatePowerMap();
+  console.log(`[AutoNateAI Intel] Daily HUD PHA pull stored ${awards.length} awards for ${yesterday}`);
+});

@@ -142,6 +142,8 @@ export default function Dashboard() {
     weather: false,
     radiation: false,
     infrastructure: false,
+    hud_pha_flows: false,
+    federal_power: false,
     global_incidents: true,
     war_alerts: false,
     gps_jamming: false,
@@ -387,6 +389,14 @@ export default function Dashboard() {
     if (activeLayers.infrastructure && !layerFetchedRef.current.has('infrastructure')) {
       fetchEndpoint('/api/infrastructure', d => ({ infrastructure: d.infrastructure }));
       layerFetchedRef.current.add('infrastructure');
+    }
+    if (activeLayers.hud_pha_flows && !layerFetchedRef.current.has('hud_pha_flows')) {
+      fetchEndpoint('/api/hud-pha-flows', d => ({ hud_phas: d.phas, hud_pha_awards: d.awards, hud_state_totals: d.state_totals }));
+      layerFetchedRef.current.add('hud_pha_flows');
+    }
+    if (activeLayers.federal_power && !layerFetchedRef.current.has('federal_power')) {
+      fetchEndpoint('/api/federal-power', d => ({ federal_power: d.people }));
+      layerFetchedRef.current.add('federal_power');
     }
     // Global Incidents (GDELT)
     if (activeLayers.global_incidents && !layerFetchedRef.current.has('gdelt')) {

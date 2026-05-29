@@ -109,7 +109,7 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
       createDot(map, 'dot-cctv', '#39FF14', 10);
 
       // Sources
-      const sources = ['flights','military','jets','private-fl','satellites','earthquakes','gdelt','gps-jamming','day-night','cctv','fires','weather','infrastructure','maritime','maritime-choke','maritime-ships','live-news','sigint-news','conflict-zones', 'war-alerts-targets', 'war-alerts-lines', 'balloons', 'radiation', 'ip-sweep-devices', 'ip-sweep-pulse', 'ip-sweep-connections', 'scan-targets'];
+      const sources = ['flights','military','jets','private-fl','satellites','earthquakes','gdelt','gps-jamming','day-night','cctv','fires','weather','infrastructure','hud-pha-flows','federal-power','maritime','maritime-choke','maritime-ships','live-news','sigint-news','conflict-zones', 'war-alerts-targets', 'war-alerts-lines', 'balloons', 'radiation', 'ip-sweep-devices', 'ip-sweep-pulse', 'ip-sweep-connections', 'scan-targets'];
       sources.forEach(s => map.addSource(s, { type: 'geojson', data: EMPTY_FC }));
 
       // ── CONFLICT ZONES — small warning markers (not polygons) ──
@@ -260,6 +260,26 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
         'text-field': ['get','name'], 'text-size': 9, 'text-font': ['Open Sans Regular'],
         'text-offset': [0, 2], 'text-max-width': 14, 'text-allow-overlap': false,
       }, paint: { 'text-color': '#76FF03', 'text-halo-color': '#000', 'text-halo-width': 1, 'text-opacity': 0.7 }});
+
+      map.addLayer({ id: 'hud-pha-bubbles', type: 'circle', source: 'hud-pha-flows', paint: {
+        'circle-radius': ['interpolate',['linear'],['sqrt',['max',['get','total_amount'],1]], 1000000,5, 100000000,15, 1000000000,28],
+        'circle-color': '#00AEEF', 'circle-opacity': 0.28,
+        'circle-stroke-width': 2, 'circle-stroke-color': '#FFFFFF', 'circle-stroke-opacity': 0.55,
+      }});
+      map.addLayer({ id: 'hud-pha-label', type: 'symbol', source: 'hud-pha-flows', minzoom: 4, layout: {
+        'text-field': ['concat', ['get','state'], ' HUD'], 'text-size': 10, 'text-font': ['Open Sans Bold'],
+        'text-offset': [0, 1.8], 'text-allow-overlap': false,
+      }, paint: { 'text-color': '#E6F7FF', 'text-halo-color': '#001018', 'text-halo-width': 1 }});
+
+      map.addLayer({ id: 'power-dots', type: 'circle', source: 'federal-power', paint: {
+        'circle-radius': ['match', ['get','branch'], 'white_house', 8, 'judicial', 7, 5],
+        'circle-color': ['match', ['get','branch'], 'white_house', '#FFD700', 'judicial', '#B388FF', '#FFFFFF'],
+        'circle-opacity': 0.85, 'circle-stroke-width': 1.5, 'circle-stroke-color': '#000',
+      }});
+      map.addLayer({ id: 'power-label', type: 'symbol', source: 'federal-power', minzoom: 5, layout: {
+        'text-field': ['get','name'], 'text-size': 9, 'text-font': ['Open Sans Regular'],
+        'text-offset': [0, 1.6], 'text-max-width': 12,
+      }, paint: { 'text-color': '#FFFFFF', 'text-halo-color': '#000', 'text-halo-width': 1 }});
 
       // Satellites
       map.addLayer({ id: 'sat-glow', type: 'circle', source: 'satellites', paint: {
@@ -853,6 +873,19 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
 
   useEffect(() => {
     if (!mapReady) return;
+    setGeo('hud-pha-flows', activeLayers.hud_pha_flows && data.hud_state_totals ? data.hud_state_totals.map((s: any) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [s.lng, s.lat] }, properties: { state: s.state, total_amount: s.total_amount, pha_count: s.pha_count, award_count: s.award_count } })) : []);
+  }, [mapReady, data.hud_state_totals, activeLayers.hud_pha_flows, setGeo]);
+
+  useEffect(() => {
+    if (!mapReady) return;
+    setGeo('federal-power', activeLayers.federal_power && data.federal_power ? data.federal_power.map((p: any, index: number) => {
+      const offset = (index % 9) * 0.08;
+      return { type: 'Feature', geometry: { type: 'Point', coordinates: [(p.lng || -77.0369) + offset, (p.lat || 38.9072) + offset] }, properties: { name: p.name, branch: p.branch, role: p.role, party: p.party, state: p.state, chamber: p.chamber } };
+    }) : []);
+  }, [mapReady, data.federal_power, activeLayers.federal_power, setGeo]);
+
+  useEffect(() => {
+    if (!mapReady) return;
     setGeo('maritime', activeLayers.maritime && data.maritime_ports ? data.maritime_ports.map((p: any) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [p.lng, p.lat] }, properties: { name: p.name, country: p.country, type: p.type, volume: p.volume, fleet: p.fleet, rank: p.rank } })) : []);
     setGeo('maritime-choke', activeLayers.maritime && data.maritime_chokepoints ? data.maritime_chokepoints.map((c: any) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [c.lng, c.lat] }, properties: { name: c.name, traffic: c.traffic, risk: c.risk } })) : []);
     setGeo('maritime-ships', activeLayers.maritime && data.maritime_ships ? data.maritime_ships.map((s: any) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [s.lng, s.lat] }, properties: { name: s.name || s.mmsi?.toString(), type: s.type || 'cargo', speed: s.speed, heading: s.heading, destination: s.destination, flag: s.flag } })) : []);
@@ -928,6 +961,8 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
     setVis(['fires-heat'], activeLayers.fires);
     setVis(['weather-glow','weather-dots','weather-label'], activeLayers.weather);
     setVis(['infra-glow','infra-dots','infra-label'], activeLayers.infrastructure);
+    setVis(['hud-pha-bubbles','hud-pha-label'], activeLayers.hud_pha_flows);
+    setVis(['power-dots','power-label'], activeLayers.federal_power);
     setVis(['maritime-glow','maritime-dots','maritime-label'], activeLayers.maritime);
     setVis(['choke-glow','choke-dots','choke-label'], activeLayers.maritime);
     setVis(['ship-dots','ship-label'], activeLayers.maritime);
