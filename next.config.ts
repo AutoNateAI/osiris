@@ -1,7 +1,9 @@
 import type { NextConfig } from "next";
 
+const isStaticExport = process.env.NEXT_OUTPUT === 'export';
+
 const nextConfig: NextConfig = {
-  output: 'standalone',
+  output: isStaticExport ? 'export' : 'standalone',
   allowedDevOrigins: ['100.110.2.29'],
   serverExternalPackages: ['ws'],
   transpilePackages: ['react-map-gl', 'mapbox-gl', 'maplibre-gl'],
@@ -9,6 +11,7 @@ const nextConfig: NextConfig = {
     ignoreBuildErrors: true,
   },
   images: {
+    unoptimized: isStaticExport,
     remotePatterns: [
       { protocol: 'https', hostname: '**' },
     ],
