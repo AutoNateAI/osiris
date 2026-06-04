@@ -7,7 +7,7 @@ import {
   Shield, Sun, AlertTriangle, Camera, Flame, Target,
   CloudLightning, Radiation, Tv, Anchor, Ship, Newspaper,
   ChevronDown, ChevronUp, ToggleLeft, ToggleRight, Landmark, Users,
-  BriefcaseBusiness, GraduationCap, HeartPulse, HandHeart,
+  BriefcaseBusiness, GraduationCap, HeartPulse, HandHeart, CalendarDays,
 } from 'lucide-react';
 
 interface LayerPanelProps {
@@ -30,6 +30,8 @@ const LAYER_GROUPS = [
       { key: 'workforce_orgs', label: 'Workforce Ecosystem', icon: BriefcaseBusiness, color: '#00E676', dataKey: 'workforce_orgs' },
       { key: 'health_orgs', label: 'Health Ecosystem', icon: HeartPulse, color: '#FF4081', dataKey: 'health_orgs' },
       { key: 'funded_faith_orgs', label: 'Funded Faith Orgs', icon: HandHeart, color: '#FFF7CC', dataKey: 'funded_faith_orgs' },
+      { key: 'sikeston_businesses', label: 'Sikeston Businesses', icon: BriefcaseBusiness, color: '#00D1B2', dataKey: 'sikeston_businesses' },
+      { key: 'sikeston_events', label: 'Sikeston Events', icon: CalendarDays, color: '#FFB020', dataKey: 'sikeston_events' },
       { key: 'federal_power_house', label: 'U.S. Representatives', icon: Users, color: '#FFFFFF', dataKey: 'federal_power', countFilter: (p: any) => p.branch === 'congress' && p.chamber === 'House' },
       { key: 'federal_power_senate', label: 'U.S. Senators', icon: Users, color: '#D4AF37', dataKey: 'federal_power', countFilter: (p: any) => p.branch === 'congress' && p.chamber === 'Senate' },
       { key: 'federal_power_judicial', label: 'Federal Judges', icon: Landmark, color: '#B388FF', dataKey: 'federal_power', countFilter: (p: any) => p.branch === 'judicial' },

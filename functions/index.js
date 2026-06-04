@@ -70,6 +70,218 @@ function stripHtml(input = '') {
   return input.replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, '').replace(/&quot;/g, '"').replace(/&amp;/g, '&').trim();
 }
 
+const SIK_ESTON_CENTER = { lat: 36.8767, lng: -89.5879 };
+const SIK_ESTON_BASE = 'https://business.sikeston.net';
+
+function decodeEntity(input = '') {
+  return String(input)
+    .replace(/&#39;/g, "'")
+    .replace(/&quot;/g, '"')
+    .replace(/&amp;/g, '&')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function gzStrip(input = '') {
+  return decodeEntity(String(input).replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, ' '));
+}
+
+function stablePoint(seed = '') {
+  let hash = 2166136261;
+  for (let i = 0; i < seed.length; i++) hash = Math.imul(hash ^ seed.charCodeAt(i), 16777619);
+  const angle = ((hash >>> 0) % 360) * Math.PI / 180;
+  const radius = 0.004 + (((hash >>> 8) % 1000) / 1000) * 0.025;
+  return { lat: SIK_ESTON_CENTER.lat + Math.sin(angle) * radius, lng: SIK_ESTON_CENTER.lng + Math.cos(angle) * radius };
+}
+
+function parseSikestonAddress(raw = '') {
+  const address = decodeURIComponent(String(raw).replace(/\+/g, ' ')).replace(/\s+/g, ' ').trim();
+  const match = address.match(/^(.*?),\s*([^,]+),\s*([A-Z]{2}),?\s*(\d{5}(?:-\d{4})?)?$/i);
+  return {
+    address: match?.[1]?.trim() || address,
+    city: match?.[2]?.trim() || 'Sikeston',
+    state: (match?.[3] || 'MO').toUpperCase(),
+    zip: match?.[4] || '',
+  };
+}
+
+function chamberStableId(prefix, input) {
+  return `${prefix}-${md5(input).slice(0, 16)}`;
+}
+
+function parseSikestonCategories(html) {
+  const links = new Map();
+  const regex = /href="(https:\/\/business\.sikeston\.net\/list\/category\/[^"]+)"[^>]*>([^<]+)/gi;
+  let match;
+  while ((match = regex.exec(html))) links.set(match[1], decodeEntity(match[2].replace(/,$/, '')));
+  return [...links.entries()].map(([url, category]) => ({ url, category }));
+}
+
+function parseSikestonMembers(html, category) {
+  const members = new Map();
+  const linkRegex = /href="(https:\/\/business\.sikeston\.net\/list\/member\/[^"]+)"[^>]*(?:alt="([^"]*)")?[^>]*>([^<]*)/gi;
+  let match;
+  while ((match = linkRegex.exec(html))) {
+    const source_url = match[1].split('?')[0];
+    const name = decodeEntity(match[2] || match[3] || '');
+    if (!name || name.length > 120) continue;
+    const current = members.get(source_url) || { source_url, categories: [] };
+    current.name = current.name || name;
+    current.categories = [...new Set([...(current.categories || []), category])];
+    members.set(source_url, current);
+  }
+  const mapAddresses = [...html.matchAll(/https:\/\/www\.google\.com\/maps\?q=([^"]+)/gi)].map((m) => parseSikestonAddress(m[1]));
+  return [...members.values()].map((member, index) => ({ ...member, ...mapAddresses[index] }));
+}
+
+function parseSikestonMemberDetail(html, source_url) {
+  const title = decodeEntity(html.match(/<title>(.*?)\s+\|/)?.[1] || '');
+  const meta = decodeEntity(html.match(/<meta name="description" content="([^"]+)"/i)?.[1] || '');
+  const categories = meta.split('|').slice(1).map((s) => s.trim()).filter(Boolean);
+  const mapAddress = parseSikestonAddress(html.match(/https:\/\/www\.google\.com\/maps\?q=([^"]+)/i)?.[1] || '');
+  return {
+    name: title,
+    categories,
+    phone: decodeEntity(html.match(/href="tel:([^"]+)"/i)?.[1] || html.match(/(\(?\d{3}\)?[-.\s]\d{3}[-.\s]\d{4})/)?.[1] || ''),
+    website: decodeEntity((html.match(/href="(https?:\/\/(?!business\.sikeston\.net|www\.sikeston\.net|www\.google\.com|growthzone\.com|growthzonecms|gmpg\.org|fonts\.googleapis\.com|fonts\.gstatic\.com|use\.fontawesome\.com|code\.jquery\.com)[^"]+)"/i)?.[1] || '').replace(/\/$/, '')),
+    source_url,
+    ...mapAddress,
+  };
+}
+
+async function fetchSikestonBusinesses({ geocode = false, limit = 400 } = {}) {
+  const summaries = new Map();
+  if (geocode) {
+    const listHtml = await fetchText(`${SIK_ESTON_BASE}/list`, { headers: { 'User-Agent': 'AutoNateAI-OSIRIS/1.0' }, signal: AbortSignal.timeout(25000) });
+    for (const { url, category } of parseSikestonCategories(listHtml)) {
+      const html = await fetchText(url, { headers: { 'User-Agent': 'AutoNateAI-OSIRIS/1.0' }, signal: AbortSignal.timeout(25000) });
+      for (const member of parseSikestonMembers(html, category)) {
+        const current = summaries.get(member.source_url) || { source_url: member.source_url, categories: [] };
+        summaries.set(member.source_url, {
+          ...current,
+          ...member,
+          categories: [...new Set([...(current.categories || []), ...(member.categories || [])])],
+        });
+      }
+    }
+  } else {
+    const html = await fetchText(`${SIK_ESTON_BASE}/list/search?sa=true`, { headers: { 'User-Agent': 'AutoNateAI-OSIRIS/1.0' }, signal: AbortSignal.timeout(25000) });
+    for (const member of parseSikestonMembers(html, 'Chamber Member')) {
+      const current = summaries.get(member.source_url) || { source_url: member.source_url, categories: [] };
+      summaries.set(member.source_url, {
+        ...current,
+        ...member,
+        categories: [...new Set([...(current.categories || []), ...(member.categories || [])])],
+      });
+    }
+  }
+  const now = new Date().toISOString();
+  const businesses = [];
+  for (const summary of [...summaries.values()].slice(0, limit)) {
+    let detail = {};
+    if (geocode) {
+      try {
+        const html = await fetchText(summary.source_url, { headers: { 'User-Agent': 'AutoNateAI-OSIRIS/1.0' }, signal: AbortSignal.timeout(25000) });
+        detail = parseSikestonMemberDetail(html, summary.source_url);
+      } catch {}
+    }
+    const merged = {
+      ...summary,
+      ...detail,
+      categories: [...new Set([...(summary.categories || []), ...(detail.categories || [])])],
+    };
+    const fullAddress = [merged.address, merged.city, merged.state, merged.zip].filter(Boolean).join(', ');
+    const geo = geocode ? await geocodeUsAddress([fullAddress]) : null;
+    const fallback = stablePoint(`${merged.name}-${fullAddress}`);
+    businesses.push({
+      id: chamberStableId('sikeston-biz', merged.source_url || merged.name || fullAddress),
+      type: 'sikeston_business',
+      name: merged.name || 'Unknown Sikeston business',
+      categories: merged.categories || [],
+      address: merged.address || '',
+      city: merged.city || 'Sikeston',
+      state: merged.state || 'MO',
+      zip: merged.zip || '',
+      phone: merged.phone || '',
+      website: merged.website || '',
+      source_url: merged.source_url,
+      lat: geo?.lat ?? fallback.lat,
+      lng: geo?.lng ?? fallback.lng,
+      geocode_source: geo?.geocode_source || (fullAddress ? 'Deterministic Sikeston fallback pending geocode' : 'Sikeston centroid fallback'),
+      data_confidence: geo ? 92 : 45,
+      last_updated: now,
+    });
+  }
+  return businesses;
+}
+
+function parseSikestonEventLinks(html) {
+  const links = new Map();
+  const regex = /href="(https:\/\/business\.sikeston\.net\/events\/details\/[^"]+)"[^>]*>([^<]+)/gi;
+  let match;
+  while ((match = regex.exec(html))) links.set(match[1].replace(/&amp;/g, '&'), decodeEntity(match[2]));
+  return [...links.entries()].map(([url, title]) => ({ url, title }));
+}
+
+function parseSikestonEventDetail(html, source_url, fallbackTitle = '') {
+  const title = decodeEntity(html.match(/<meta itemprop="name" content="([^"]+)"/i)?.[1] || fallbackTitle || html.match(/<h1>(.*?)<\/h1>/i)?.[1] || '');
+  const startDate = decodeEntity(html.match(/itemprop="startDate" content="([^"]+)"/i)?.[1] || '');
+  const endDate = decodeEntity(html.match(/itemprop="endDate" content="([^"]+)"/i)?.[1] || '');
+  const location = gzStrip(html.match(/class="col-sm-12 gz-event-location"[\s\S]*?<p>([\s\S]*?)<\/p>/i)?.[1] || '');
+  const description = gzStrip(html.match(/<div class="row gz-event-description"[\s\S]*?<p>([\s\S]*?)<\/p>/i)?.[1] || '');
+  const fees = gzStrip(html.match(/<span class="gz-event-fees">([\s\S]*?)<\/span>/i)?.[1] || '');
+  const fallback = stablePoint(`${title}-${startDate}-${location}`);
+  return {
+    id: chamberStableId('sikeston-event', source_url.split('?')[0]),
+    type: 'sikeston_event',
+    title,
+    startDate,
+    endDate,
+    date_label: startDate,
+    time_label: startDate ? new Date(startDate).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/Chicago' }) : '',
+    location,
+    address: location,
+    fees,
+    contact: decodeEntity(html.match(/mailto:([^"?]+)[^"]*"/i)?.[1] || ''),
+    description,
+    source_url: source_url.split('?')[0],
+    lat: fallback.lat,
+    lng: fallback.lng,
+    geocode_source: 'Deterministic Sikeston fallback pending geocode',
+    data_confidence: 42,
+    last_updated: new Date().toISOString(),
+  };
+}
+
+async function fetchSikestonEvents({ geocode = false, limit = 200 } = {}) {
+  const now = new Date();
+  const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  const eventLinks = new Map();
+  for (let offset = 0; offset < 3; offset++) {
+    const d = new Date(Date.UTC(monthStart.getUTCFullYear(), monthStart.getUTCMonth() + offset, 1));
+    const month = d.toISOString().slice(0, 10);
+    const html = await fetchText(`${SIK_ESTON_BASE}/events/calendar?calendarMonth=${month}`, { headers: { 'User-Agent': 'AutoNateAI-OSIRIS/1.0' }, signal: AbortSignal.timeout(25000) });
+    for (const event of parseSikestonEventLinks(html)) eventLinks.set(event.url, event.title);
+  }
+  const events = [];
+  for (const [url, fallbackTitle] of [...eventLinks.entries()].slice(0, limit)) {
+    try {
+      const html = await fetchText(url, { headers: { 'User-Agent': 'AutoNateAI-OSIRIS/1.0' }, signal: AbortSignal.timeout(25000) });
+      const event = parseSikestonEventDetail(html, url, fallbackTitle);
+      const geo = geocode ? await geocodeUsAddress([`${event.location}, Sikeston, MO`]) : null;
+      events.push({
+        ...event,
+        lat: geo?.lat ?? event.lat,
+        lng: geo?.lng ?? event.lng,
+        geocode_source: geo?.geocode_source || event.geocode_source,
+        data_confidence: geo ? 86 : event.data_confidence,
+      });
+    } catch {}
+  }
+  return events.sort((a, b) => String(a.startDate).localeCompare(String(b.startDate)));
+}
+
 function parseRSSItems(xml, sourceName) {
   const items = [];
   const itemRegex = /<item>([\s\S]*?)<\/item>/gi;
@@ -2937,6 +3149,52 @@ app.get('/api/workforce-orgs', cache(300000, async (req) => readCapabilityCollec
 app.get('/api/workforce-funding-recipients', cache(300000, async (req) => readCapabilityCollection('workforce_funding_recipients', req)));
 app.get('/api/health-orgs', cache(300000, async (req) => readCapabilityCollection('health_orgs', req)));
 app.get('/api/funded-faith-orgs', cache(300000, async (req) => readCapabilityCollection('funded_faith_orgs', req)));
+
+app.get('/api/sikeston-businesses', cache(300000, async () => {
+  let snap = await db.collection('sikeston_businesses').limit(1000).get();
+  if (snap.empty) {
+    const businesses = await fetchSikestonBusinesses({ geocode: false, limit: 400 });
+    return { businesses, total: businesses.length, source: `${SIK_ESTON_BASE}/list`, timestamp: new Date().toISOString(), persisted: false };
+  }
+  const businesses = snap.docs.map((doc) => doc.data()).sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+  return { businesses, total: businesses.length, source: `${SIK_ESTON_BASE}/list`, timestamp: new Date().toISOString(), persisted: true };
+}));
+
+app.get('/api/sikeston-events', cache(300000, async () => {
+  let snap = await db.collection('sikeston_events').limit(500).get();
+  if (snap.empty) {
+    const events = await fetchSikestonEvents({ geocode: false, limit: 200 });
+    return { events, total: events.length, source: `${SIK_ESTON_BASE}/events/calendar`, timestamp: new Date().toISOString(), persisted: false };
+  }
+  const events = snap.docs.map((doc) => doc.data()).sort((a, b) => String(a.startDate || '').localeCompare(String(b.startDate || '')));
+  return { events, total: events.length, source: `${SIK_ESTON_BASE}/events/calendar`, timestamp: new Date().toISOString(), persisted: true };
+}));
+
+app.all('/api/sikeston/update', async (req, res) => {
+  try {
+    const limit = Math.min(Number(req.query.limit || req.body?.limit || 400), 800);
+    const geocode = String(req.query.geocode ?? req.body?.geocode ?? '1') !== '0';
+    const [businesses, events] = await Promise.all([
+      fetchSikestonBusinesses({ geocode, limit }),
+      fetchSikestonEvents({ geocode, limit: 250 }),
+    ]);
+    await clearCollection('sikeston_businesses');
+    await clearCollection('sikeston_events');
+    await writeCollection('sikeston_businesses', businesses);
+    await writeCollection('sikeston_events', events);
+    jsonCache.clear();
+    res.json({
+      inserted_or_updated: { businesses: businesses.length, events: events.length },
+      geocode,
+      business_geocoded: businesses.filter((b) => b.data_confidence >= 90).length,
+      event_geocoded: events.filter((e) => e.data_confidence >= 80).length,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err) {
+    console.error('[AutoNateAI Intel Functions] Sikeston update failed', err);
+    res.status(500).json({ error: 'Sikeston update failed', detail: err instanceof Error ? err.message : 'Unknown error' });
+  }
+});
 
 app.get('/api/community-capability-summary', cache(300000, async () => {
   const snap = await db.collection('community_capability_summary').limit(200).get();

@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Layers, BarChart3, Newspaper, Search, Share2, Map as MapIcon, X, Globe, MapPinned, Radar, Satellite, Moon, Sun, ExternalLink, AlertTriangle, Building2, RadioTower, Activity, Shield, Database, Wifi, Landmark, Users } from 'lucide-react';
+import { Layers, BarChart3, Newspaper, Search, Share2, Map as MapIcon, X, Globe, MapPinned, Radar, Satellite, Moon, Sun, ExternalLink, AlertTriangle, Building2, RadioTower, Activity, Shield, Database, Wifi, Landmark, Users, CalendarDays } from 'lucide-react';
 import IntelFeed from '@/components/IntelFeed';
 import MarketsPanel from '@/components/MarketsPanel';
 import SearchBar from '@/components/SearchBar';
@@ -181,6 +181,44 @@ function EntityDetailModal({ entity, onClose }: { entity: any; onClose: () => vo
   );
 }
 
+function SikestonEventsPanel({ events }: { events: any[] }) {
+  const upcoming = (Array.isArray(events) ? events : [])
+    .filter((event) => event?.startDate)
+    .slice()
+    .sort((a, b) => String(a.startDate).localeCompare(String(b.startDate)))
+    .slice(0, 10);
+  if (!upcoming.length) return null;
+  return (
+    <motion.div initial={{ opacity: 0, x: 18 }} animate={{ opacity: 1, x: 0 }} className="glass-panel p-3 pointer-events-auto w-[330px] max-w-[calc(100vw-24px)]">
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2">
+          <CalendarDays className="w-3.5 h-3.5 text-[#FFB020]" />
+          <span className="hud-text text-[11px] text-[var(--text-primary)] tracking-widest">SIKESTON EVENTS</span>
+        </div>
+        <span className="gotham-tag gotham-tag--info" style={{ fontSize: '7px', padding: '1px 5px' }}>{upcoming.length} NEXT</span>
+      </div>
+      <div className="space-y-2 max-h-[360px] overflow-y-auto styled-scrollbar pr-1">
+        {upcoming.map((event) => {
+          const when = new Date(event.startDate);
+          const dateText = Number.isNaN(when.getTime()) ? event.date_label : when.toLocaleDateString(undefined, { month: 'short', day: 'numeric', weekday: 'short' });
+          const timeText = Number.isNaN(when.getTime()) ? event.time_label : when.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+          return (
+            <a key={event.id || event.source_url} href={event.source_url} target="_blank" rel="noreferrer" className="block rounded border border-[var(--border-secondary)]/70 bg-black/20 p-2 hover:border-[#FFB020]/50 transition-colors">
+              <div className="text-[11px] font-mono font-bold text-[var(--text-primary)] leading-snug">{event.title}</div>
+              <div className="mt-1 grid grid-cols-[70px_1fr] gap-2 text-[9px] font-mono">
+                <span className="text-[#FFB020]">{dateText}</span>
+                <span className="text-[var(--text-secondary)]">{timeText}</span>
+                <span className="text-[var(--text-muted)]">WHERE</span>
+                <span className="text-[var(--text-secondary)] truncate">{event.location || 'Location TBD'}</span>
+              </div>
+            </a>
+          );
+        })}
+      </div>
+    </motion.div>
+  );
+}
+
 export default function Dashboard() {
   const dataRef = useRef<any>({});
   const [dataVersion, setDataVersion] = useState(0);
@@ -240,6 +278,8 @@ export default function Dashboard() {
     workforce_orgs: false,
     health_orgs: false,
     funded_faith_orgs: false,
+    sikeston_businesses: false,
+    sikeston_events: true,
     federal_power: false,
     federal_power_house: true,
     federal_power_senate: true,
@@ -521,6 +561,14 @@ export default function Dashboard() {
       fetchEndpoint('/api/funded-faith-orgs', d => ({ funded_faith_orgs: d.orgs }));
       layerFetchedRef.current.add('funded_faith_orgs');
     }
+    if (activeLayers.sikeston_businesses && !layerFetchedRef.current.has('sikeston_businesses')) {
+      fetchEndpoint('/api/sikeston-businesses', d => ({ sikeston_businesses: d.businesses }));
+      layerFetchedRef.current.add('sikeston_businesses');
+    }
+    if (activeLayers.sikeston_events && !layerFetchedRef.current.has('sikeston_events')) {
+      fetchEndpoint('/api/sikeston-events', d => ({ sikeston_events: d.events }));
+      layerFetchedRef.current.add('sikeston_events');
+    }
     if ((activeLayers.federal_power || activeLayers.federal_power_house || activeLayers.federal_power_senate || activeLayers.federal_power_judicial || activeLayers.federal_power_white_house) && !layerFetchedRef.current.has('federal_power')) {
       fetchEndpoint('/api/federal-power', d => ({ federal_power: d.people }));
       layerFetchedRef.current.add('federal_power');
@@ -780,6 +828,12 @@ export default function Dashboard() {
           scanTargets={scanTargets}
         />
       </ErrorBoundary>
+
+      {activeLayers.sikeston_events && (
+        <div className="absolute top-[88px] right-3 z-[210] pointer-events-none hidden xl:block">
+          <SikestonEventsPanel events={data.sikeston_events || []} />
+        </div>
+      )}
 
 
       {/* ── MAP VIEW CONTROLS (3D/2D + SATELLITE TOGGLE) ── */}
