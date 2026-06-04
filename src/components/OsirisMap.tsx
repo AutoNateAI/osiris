@@ -112,7 +112,7 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
       createDot(map, 'dot-cctv', '#39FF14', 10);
 
       // Sources
-      const sources = ['flights','military','jets','private-fl','satellites','earthquakes','gdelt','gps-jamming','day-night','cctv','fires','weather','infrastructure','hud-pha-flows','sbir-recipients','education-orgs','workforce-orgs','health-orgs','funded-faith-orgs','sikeston-businesses','sikeston-events','federal-power','power-edges','maritime','maritime-choke','maritime-ships','live-news','sigint-news','conflict-zones', 'war-alerts-targets', 'war-alerts-lines', 'balloons', 'radiation', 'ip-sweep-devices', 'ip-sweep-pulse', 'ip-sweep-connections', 'scan-targets'];
+      const sources = ['flights','military','jets','private-fl','satellites','earthquakes','gdelt','gps-jamming','day-night','cctv','fires','weather','infrastructure','hud-pha-flows','sbir-recipients','education-orgs','workforce-orgs','health-orgs','funded-faith-orgs','sikeston-businesses','sikeston-events','hopewell-businesses','hopewell-events','federal-power','power-edges','maritime','maritime-choke','maritime-ships','live-news','sigint-news','conflict-zones', 'war-alerts-targets', 'war-alerts-lines', 'balloons', 'radiation', 'ip-sweep-devices', 'ip-sweep-pulse', 'ip-sweep-connections', 'scan-targets'];
       sources.forEach(s => map.addSource(s, { type: 'geojson', data: EMPTY_FC }));
 
       map.addSource('country-color-areas', { type: 'geojson', data: COUNTRY_GEOJSON_URL });
@@ -393,6 +393,44 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
         'text-field': ['get','title'], 'text-size': 9, 'text-font': ['Open Sans Regular'],
         'text-offset': [0, 1.7], 'text-max-width': 13, 'text-allow-overlap': false,
       }, paint: { 'text-color': '#FFE1A3', 'text-halo-color': '#120900', 'text-halo-width': 1.1 }});
+
+      map.addLayer({ id: 'hopewell-business-glow', type: 'circle', source: 'hopewell-businesses', paint: {
+        'circle-radius': ['interpolate',['linear'],['zoom'], 8,8, 12,14, 15,20],
+        'circle-color': '#7CFF6B',
+        'circle-opacity': ['interpolate',['linear'],['zoom'], 8,0.12, 14,0.04],
+        'circle-blur': 1,
+      }});
+      map.addLayer({ id: 'hopewell-business-dots', type: 'circle', source: 'hopewell-businesses', paint: {
+        'circle-radius': ['interpolate',['linear'],['get','data_confidence'], 0,3, 50,4.5, 90,6.5],
+        'circle-color': '#7CFF6B',
+        'circle-opacity': 0.82,
+        'circle-stroke-width': 1.4,
+        'circle-stroke-color': '#061E05',
+        'circle-stroke-opacity': 0.85,
+      }});
+      map.addLayer({ id: 'hopewell-business-label', type: 'symbol', source: 'hopewell-businesses', minzoom: 13, layout: {
+        'text-field': ['get','name'], 'text-size': 9, 'text-font': ['Open Sans Regular'],
+        'text-offset': [0, 1.6], 'text-max-width': 13, 'text-allow-overlap': false,
+      }, paint: { 'text-color': '#C9FFC2', 'text-halo-color': '#061105', 'text-halo-width': 1.1 }});
+
+      map.addLayer({ id: 'hopewell-event-glow', type: 'circle', source: 'hopewell-events', paint: {
+        'circle-radius': ['interpolate',['linear'],['zoom'], 8,10, 12,18, 15,26],
+        'circle-color': '#4FB3FF',
+        'circle-opacity': ['interpolate',['linear'],['zoom'], 8,0.15, 14,0.05],
+        'circle-blur': 1,
+      }});
+      map.addLayer({ id: 'hopewell-event-dots', type: 'circle', source: 'hopewell-events', paint: {
+        'circle-radius': ['interpolate',['linear'],['zoom'], 8,4, 12,6, 15,8],
+        'circle-color': '#4FB3FF',
+        'circle-opacity': 0.86,
+        'circle-stroke-width': 1.5,
+        'circle-stroke-color': '#03101A',
+        'circle-stroke-opacity': 0.9,
+      }});
+      map.addLayer({ id: 'hopewell-event-label', type: 'symbol', source: 'hopewell-events', minzoom: 13, layout: {
+        'text-field': ['get','title'], 'text-size': 9, 'text-font': ['Open Sans Regular'],
+        'text-offset': [0, 1.7], 'text-max-width': 13, 'text-allow-overlap': false,
+      }, paint: { 'text-color': '#BFE4FF', 'text-halo-color': '#020A10', 'text-halo-width': 1.1 }});
 
       map.addLayer({ id: 'power-dots', type: 'circle', source: 'federal-power', paint: {
         'circle-radius': ['match', ['get','branch'], 'white_house', 8, 'judicial', 7, 5],
@@ -989,7 +1027,44 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
       onEntityClick?.({ ...p, type: 'federal_power' });
     });
 
-    ['hud-pha-bubbles', 'sbir-recipient-dots', 'education-org-dots', 'workforce-org-dots', 'health-org-dots', 'funded-faith-org-dots', 'sikeston-business-dots', 'sikeston-event-dots', 'power-dots'].forEach(layer => {
+    map.on('click', 'hopewell-business-dots', e => {
+      const p = e.features?.[0]?.properties as any;
+      if (!p) return;
+      const coords = (e.features![0].geometry as any).coordinates;
+      const categories = (() => {
+        try { return JSON.parse(p.categories || '[]').join(', '); } catch { return p.categories || ''; }
+      })();
+      popup(coords, `<div style="${pStyle}border:1px solid rgba(124,255,107,0.35);">
+        <div style="color:#C9FFC2;font-size:13px;font-weight:700;margin-bottom:5px;">${p.name || 'Hopewell Business'}</div>
+        <div style="font-size:10px;color:#E8E6E0;line-height:1.45;">${[p.address, p.city, p.state, p.zip].filter(Boolean).join(', ') || 'Address not listed'}</div>
+        ${categories ? `<div style="margin-top:6px;font-size:9px;color:#7CFF6B;">${categories}</div>` : ''}
+        ${p.phone ? `<div style="margin-top:6px;font-size:9px;color:#aaa;">${p.phone}</div>` : ''}
+        <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;">
+          ${p.website ? `<a href="${p.website}" target="_blank" style="${linkStyle}color:#7CFF6B;border:1px solid rgba(124,255,107,0.4);background:rgba(124,255,107,0.1);">WEBSITE</a>` : ''}
+          <a href="${p.source_url}" target="_blank" style="${linkStyle}color:#C9FFC2;border:1px solid rgba(201,255,194,0.4);background:rgba(201,255,194,0.1);">CHAMBER</a>
+        </div>
+      </div>`);
+    });
+
+    map.on('click', 'hopewell-event-dots', e => {
+      const p = e.features?.[0]?.properties as any;
+      if (!p) return;
+      const coords = (e.features![0].geometry as any).coordinates;
+      const when = p.startDate ? new Date(p.startDate) : null;
+      const dateText = when && !Number.isNaN(when.getTime()) ? when.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }) : (p.date_label || 'Date TBD');
+      const timeText = when && !Number.isNaN(when.getTime()) ? when.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) : (p.time_label || '');
+      popup(coords, `<div style="${pStyle}border:1px solid rgba(79,179,255,0.35);">
+        <div style="color:#BFE4FF;font-size:13px;font-weight:700;margin-bottom:5px;">${p.title || 'Hopewell Event'}</div>
+        <div style="display:grid;grid-template-columns:70px 1fr;gap:4px;font-size:10px;margin-bottom:8px;">
+          <span style="color:#5C5A54;">WHEN</span><span style="color:#4FB3FF;">${dateText} ${timeText}</span>
+          <span style="color:#5C5A54;">WHERE</span><span style="color:#E8E6E0;">${p.location || 'Location TBD'}</span>
+        </div>
+        ${p.description ? `<div style="font-size:9px;color:#aaa;line-height:1.4;">${String(p.description).slice(0, 220)}</div>` : ''}
+        <a href="${p.source_url}" target="_blank" style="${linkStyle}color:#4FB3FF;border:1px solid rgba(79,179,255,0.4);background:rgba(79,179,255,0.1);">EVENT DETAILS</a>
+      </div>`);
+    });
+
+    ['hud-pha-bubbles', 'sbir-recipient-dots', 'education-org-dots', 'workforce-org-dots', 'health-org-dots', 'funded-faith-org-dots', 'sikeston-business-dots', 'sikeston-event-dots', 'hopewell-business-dots', 'hopewell-event-dots', 'power-dots'].forEach(layer => {
       map.on('mouseenter', layer, () => { map.getCanvas().style.cursor = 'pointer'; });
       map.on('mouseleave', layer, () => { map.getCanvas().style.cursor = ''; });
     });
@@ -1182,6 +1257,20 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
 
   useEffect(() => {
     if (!mapReady) return;
+    setGeo('hopewell-businesses', activeLayers.hopewell_businesses && data.hopewell_businesses ? data.hopewell_businesses
+      .filter((b: any) => Number.isFinite(Number(b.lng)) && Number.isFinite(Number(b.lat)))
+      .map((b: any) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [Number(b.lng), Number(b.lat)] }, properties: { ...b, categories: JSON.stringify(b.categories || []) } })) : []);
+  }, [mapReady, data.hopewell_businesses, activeLayers.hopewell_businesses, setGeo]);
+
+  useEffect(() => {
+    if (!mapReady) return;
+    setGeo('hopewell-events', activeLayers.hopewell_events && data.hopewell_events ? data.hopewell_events
+      .filter((event: any) => Number.isFinite(Number(event.lng)) && Number.isFinite(Number(event.lat)))
+      .map((event: any) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [Number(event.lng), Number(event.lat)] }, properties: event })) : []);
+  }, [mapReady, data.hopewell_events, activeLayers.hopewell_events, setGeo]);
+
+  useEffect(() => {
+    if (!mapReady) return;
     const showPower = (p: any) => {
       if (activeLayers.federal_power) return true;
       if (p.branch === 'congress' && p.chamber === 'House') return !!activeLayers.federal_power_house;
@@ -1335,6 +1424,8 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
     setVis(['funded-faith-org-glow','funded-faith-org-dots','funded-faith-org-label'], activeLayers.funded_faith_orgs);
     setVis(['sikeston-business-glow','sikeston-business-dots','sikeston-business-label'], activeLayers.sikeston_businesses);
     setVis(['sikeston-event-glow','sikeston-event-dots','sikeston-event-label'], activeLayers.sikeston_events);
+    setVis(['hopewell-business-glow','hopewell-business-dots','hopewell-business-label'], activeLayers.hopewell_businesses);
+    setVis(['hopewell-event-glow','hopewell-event-dots','hopewell-event-label'], activeLayers.hopewell_events);
     setVis(['power-dots','power-label'], activeLayers.federal_power || activeLayers.federal_power_house || activeLayers.federal_power_senate || activeLayers.federal_power_judicial || activeLayers.federal_power_white_house);
     setVis(['power-edge-glow','power-edge-lines'], activeLayers.power_edges && (activeLayers.power_edges_democrat || activeLayers.power_edges_republican));
     setVis(['maritime-glow','maritime-dots','maritime-label'], activeLayers.maritime);

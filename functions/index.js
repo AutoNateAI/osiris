@@ -72,6 +72,8 @@ function stripHtml(input = '') {
 
 const SIK_ESTON_CENTER = { lat: 36.8767, lng: -89.5879 };
 const SIK_ESTON_BASE = 'https://business.sikeston.net';
+const HOPEWELL_CENTER = { lat: 37.3043, lng: -77.2872 };
+const HOPEWELL_BASE = 'https://www.hpgchamber.org';
 
 function decodeEntity(input = '') {
   return String(input)
@@ -95,6 +97,14 @@ function stablePoint(seed = '') {
   return { lat: SIK_ESTON_CENTER.lat + Math.sin(angle) * radius, lng: SIK_ESTON_CENTER.lng + Math.cos(angle) * radius };
 }
 
+function stableRegionalPoint(seed = '', center = SIK_ESTON_CENTER, maxRadius = 0.025) {
+  let hash = 2166136261;
+  for (let i = 0; i < seed.length; i++) hash = Math.imul(hash ^ seed.charCodeAt(i), 16777619);
+  const angle = ((hash >>> 0) % 360) * Math.PI / 180;
+  const radius = 0.005 + (((hash >>> 8) % 1000) / 1000) * maxRadius;
+  return { lat: center.lat + Math.sin(angle) * radius, lng: center.lng + Math.cos(angle) * radius };
+}
+
 function parseSikestonAddress(raw = '') {
   const address = decodeURIComponent(String(raw).replace(/\+/g, ' ')).replace(/\s+/g, ' ').trim();
   const match = address.match(/^(.*?),\s*([^,]+),\s*([A-Z]{2}),?\s*(\d{5}(?:-\d{4})?)?$/i);
@@ -103,6 +113,19 @@ function parseSikestonAddress(raw = '') {
     city: match?.[2]?.trim() || 'Sikeston',
     state: (match?.[3] || 'MO').toUpperCase(),
     zip: match?.[4] || '',
+  };
+}
+
+function parseHopewellAddress(raw = '') {
+  const address = decodeURIComponent(String(raw).replace(/\+/g, ' ')).replace(/\s+/g, ' ').trim();
+  const match = address.match(/^(.*?),\s*([^,]+),\s*([A-Za-z ]{2,20}),?\s*(\d{5}(?:-\d{4})?)?$/i);
+  const state = (match?.[3] || 'VA').trim();
+  return {
+    address: match?.[1]?.trim() || address,
+    city: match?.[2]?.trim() || 'Hopewell',
+    state: /^virginia$/i.test(state) ? 'VA' : state.toUpperCase(),
+    zip: match?.[4] || '',
+    full: address,
   };
 }
 
@@ -270,6 +293,164 @@ async function fetchSikestonEvents({ geocode = false, limit = 200 } = {}) {
       const html = await fetchText(url, { headers: { 'User-Agent': 'AutoNateAI-OSIRIS/1.0' }, signal: AbortSignal.timeout(25000) });
       const event = parseSikestonEventDetail(html, url, fallbackTitle);
       const geo = geocode ? await geocodeUsAddress([`${event.location}, Sikeston, MO`]) : null;
+      events.push({
+        ...event,
+        lat: geo?.lat ?? event.lat,
+        lng: geo?.lng ?? event.lng,
+        geocode_source: geo?.geocode_source || event.geocode_source,
+        data_confidence: geo ? 86 : event.data_confidence,
+      });
+    } catch {}
+  }
+  return events.sort((a, b) => String(a.startDate).localeCompare(String(b.startDate)));
+}
+
+function parseHopewellMemberCards(html, category = 'Chamber Member') {
+  return String(html).split(/<div class="gz-list-card-wrapper[^>]*>/i).slice(1).map((card) => {
+    const source_url = decodeEntity(card.match(/<h5[^>]*gz-card-title[\s\S]*?<a href="([^"]+)"/i)?.[1] || '').split('?')[0];
+    const titleMatch = card.match(/<h5[^>]*gz-card-title[\s\S]*?<a[^>]*(?:alt="([^"]*)")?[^>]*>([\s\S]*?)<\/a>/i);
+    const name = decodeEntity(titleMatch?.[1] || titleMatch?.[2] || '');
+    const mapAddress = parseHopewellAddress(card.match(/https:\/\/www\.google\.com\/maps\?q=([^"]+)/i)?.[1] || '');
+    const phone = decodeEntity(card.match(/href="tel:([^"]+)"/i)?.[1] || card.match(/gz-card-phone[\s\S]*?<span>(.*?)<\/span>/i)?.[1] || '');
+    if (!source_url || !name) return null;
+    return { source_url, name, categories: [category], phone, ...mapAddress };
+  }).filter(Boolean);
+}
+
+function parseHopewellAlphaLinks(html) {
+  const letters = new Set();
+  const regex = /href="https:\/\/www\.hpgchamber\.org\/members\/searchalpha\/([^"]+)"/gi;
+  let match;
+  while ((match = regex.exec(html))) letters.add(match[1]);
+  return [...letters].filter((letter) => letter.length <= 3);
+}
+
+function parseHopewellMemberDetail(html, source_url) {
+  const name = decodeEntity(html.match(/<h1[^>]*itemprop="name"[^>]*>([\s\S]*?)<\/h1>/i)?.[1] || html.match(/<title>(.*?)\s+\|/)?.[1] || '');
+  const categories = [...html.matchAll(/\/members\/category\/[^"]+">([^<]+)/gi)].map((m) => decodeEntity(m[1].replace(/,$/, ''))).filter(Boolean);
+  const mapAddress = parseHopewellAddress(html.match(/https:\/\/www\.google\.com\/maps\?q=([^"]+)/i)?.[1] || html.match(/https:\/\/maps\.google\.com\/maps\?[^"]*q=([^"&]+)/i)?.[1] || '');
+  return {
+    name,
+    categories,
+    phone: decodeEntity(html.match(/href="tel:([^"]+)"/i)?.[1] || html.match(/(\(?\d{3}\)?[-.\s]\d{3}[-.\s]\d{4})/)?.[1] || ''),
+    website: decodeEntity((html.match(/href="(https?:\/\/(?!www\.hpgchamber\.org|hpgchamber\.org|www\.google\.com|maps\.google\.com|chambermaster\.blob\.core\.windows\.net|growthzone\.com|fonts\.googleapis\.com|fonts\.gstatic\.com|code\.jquery\.com)[^"]+)"/i)?.[1] || '').replace(/\/$/, '')),
+    source_url,
+    ...mapAddress,
+  };
+}
+
+async function fetchHopewellBusinesses({ geocode = false, limit = 600 } = {}) {
+  const summaries = new Map();
+  const indexHtml = await fetchText(`${HOPEWELL_BASE}/members/`, { headers: { 'User-Agent': 'AutoNateAI-OSIRIS/1.0' }, signal: AbortSignal.timeout(25000) });
+  const letters = parseHopewellAlphaLinks(indexHtml);
+  for (const letter of letters) {
+    const html = await fetchText(`${HOPEWELL_BASE}/members/searchalpha/${letter}`, { headers: { 'User-Agent': 'AutoNateAI-OSIRIS/1.0' }, signal: AbortSignal.timeout(25000) });
+    for (const member of parseHopewellMemberCards(html)) {
+      const current = summaries.get(member.source_url) || { source_url: member.source_url, categories: [] };
+      summaries.set(member.source_url, {
+        ...current,
+        ...member,
+        categories: [...new Set([...(current.categories || []), ...(member.categories || [])])],
+      });
+    }
+  }
+  const now = new Date().toISOString();
+  const businesses = [];
+  for (const summary of [...summaries.values()].slice(0, limit)) {
+    let detail = {};
+    if (geocode) {
+      try {
+        const html = await fetchText(summary.source_url, { headers: { 'User-Agent': 'AutoNateAI-OSIRIS/1.0' }, signal: AbortSignal.timeout(25000) });
+        detail = parseHopewellMemberDetail(html, summary.source_url);
+      } catch {}
+    }
+    const merged = {
+      ...summary,
+      ...detail,
+      categories: [...new Set([...(summary.categories || []), ...(detail.categories || [])])],
+    };
+    const fullAddress = [merged.address, merged.city, merged.state, merged.zip].filter(Boolean).join(', ');
+    const geo = geocode ? await geocodeUsAddress([fullAddress]) : null;
+    const fallback = stableRegionalPoint(`${merged.name}-${fullAddress}`, HOPEWELL_CENTER, 0.04);
+    businesses.push({
+      id: chamberStableId('hopewell-biz', merged.source_url || merged.name || fullAddress),
+      type: 'hopewell_business',
+      name: merged.name || 'Unknown Hopewell business',
+      categories: merged.categories || [],
+      address: merged.address || '',
+      city: merged.city || 'Hopewell',
+      state: merged.state || 'VA',
+      zip: merged.zip || '',
+      phone: merged.phone || '',
+      website: merged.website || '',
+      source_url: merged.source_url,
+      lat: geo?.lat ?? fallback.lat,
+      lng: geo?.lng ?? fallback.lng,
+      geocode_source: geo?.geocode_source || (fullAddress ? 'Deterministic Hopewell fallback pending geocode' : 'Hopewell centroid fallback'),
+      data_confidence: geo ? 92 : 45,
+      last_updated: now,
+    });
+  }
+  return businesses;
+}
+
+function parseHopewellEventLinks(html) {
+  const links = new Map();
+  const regex = /href="(https:\/\/www\.hpgchamber\.org\/events\/details\/[^"]+)"[^>]*>([^<]+)/gi;
+  let match;
+  while ((match = regex.exec(html))) links.set(match[1].replace(/&amp;/g, '&'), decodeEntity(match[2]));
+  return [...links.entries()].map(([url, title]) => ({ url, title }));
+}
+
+function eventTextAfter(html, heading) {
+  const escaped = heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = html.match(new RegExp(`<h5[^>]*>\\s*${escaped}\\s*<\\/h5>([\\s\\S]*?)(?:<h5|<\\/div>\\s*<\\/div>|<\\/div>\\s*<div class="col-sm-12)`, 'i'));
+  return gzStrip(match?.[1] || '');
+}
+
+function parseHopewellEventDetail(html, source_url, fallbackTitle = '') {
+  const title = decodeEntity(html.match(/<h1[^>]*itemprop="name"[^>]*>([\s\S]*?)<\/h1>/i)?.[1] || html.match(/<meta itemprop="name" content="([^"]+)"/i)?.[1] || fallbackTitle || '');
+  const startDate = decodeEntity(html.match(/itemprop="startDate" content="([^"]+)"/i)?.[1] || '');
+  const endDate = decodeEntity(html.match(/itemprop="endDate" content="([^"]+)"/i)?.[1] || '');
+  const mapAddress = parseHopewellAddress(html.match(/https:\/\/maps\.google\.com\/maps\?[^"]*q=([^"&]+)/i)?.[1] || html.match(/https:\/\/www\.google\.com\/maps\?q=([^"]+)/i)?.[1] || '');
+  const venue = gzStrip(html.match(/class="col-sm-12 gz-event-location"[\s\S]*?<p>([\s\S]*?)<\/p>/i)?.[1] || '');
+  const location = [venue.split('\n')[0], mapAddress.full].filter(Boolean).join(' - ');
+  const fallback = stableRegionalPoint(`${title}-${startDate}-${location}`, HOPEWELL_CENTER, 0.04);
+  return {
+    id: chamberStableId('hopewell-event', source_url.split('?')[0]),
+    type: 'hopewell_event',
+    title,
+    startDate,
+    endDate,
+    date_label: gzStrip(html.match(/<div class="col-sm-12 gz-event-date">([\s\S]*?)<\/div>/i)?.[1] || '').replace(/^Date and Time\s*/i, ''),
+    time_label: startDate ? new Date(startDate).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' }) : '',
+    location: location || venue || mapAddress.full,
+    address: mapAddress.full || venue,
+    fees: eventTextAfter(html, 'Fees/Admission') || gzStrip(html.match(/<span class="gz-event-fees">([\s\S]*?)<\/span>/i)?.[1] || ''),
+    contact: decodeEntity(html.match(/mailto:([^"?]+)[^"]*"/i)?.[1] || ''),
+    description: gzStrip(html.match(/<div class="row gz-event-description"[\s\S]*?<p>([\s\S]*?)<\/p>/i)?.[1] || ''),
+    source_url: source_url.split('?')[0],
+    lat: fallback.lat,
+    lng: fallback.lng,
+    geocode_source: 'Deterministic Hopewell fallback pending geocode',
+    data_confidence: 42,
+    last_updated: new Date().toISOString(),
+  };
+}
+
+async function fetchHopewellEvents({ geocode = false, limit = 250 } = {}) {
+  const months = ['2026-06-01', '2026-07-01', '2026-08-01', '2026-09-01', '2026-10-01', '2026-11-01', '2026-12-01'];
+  const eventLinks = new Map();
+  for (const month of months) {
+    const html = await fetchText(`${HOPEWELL_BASE}/events/calendar?calendarMonth=${month}`, { headers: { 'User-Agent': 'AutoNateAI-OSIRIS/1.0' }, signal: AbortSignal.timeout(25000) });
+    for (const event of parseHopewellEventLinks(html)) eventLinks.set(event.url, event.title);
+  }
+  const events = [];
+  for (const [url, fallbackTitle] of [...eventLinks.entries()].slice(0, limit)) {
+    try {
+      const html = await fetchText(url, { headers: { 'User-Agent': 'AutoNateAI-OSIRIS/1.0' }, signal: AbortSignal.timeout(25000) });
+      const event = parseHopewellEventDetail(html, url, fallbackTitle);
+      const geo = geocode ? await geocodeUsAddress([event.address || `${event.location}, Hopewell, VA`]) : null;
       events.push({
         ...event,
         lat: geo?.lat ?? event.lat,
@@ -3193,6 +3374,53 @@ app.all('/api/sikeston/update', async (req, res) => {
   } catch (err) {
     console.error('[AutoNateAI Intel Functions] Sikeston update failed', err);
     res.status(500).json({ error: 'Sikeston update failed', detail: err instanceof Error ? err.message : 'Unknown error' });
+  }
+});
+
+app.get('/api/hopewell-businesses', cache(300000, async () => {
+  let snap = await db.collection('hopewell_businesses').limit(1200).get();
+  if (snap.empty) {
+    const businesses = await fetchHopewellBusinesses({ geocode: false, limit: 600 });
+    return { businesses, total: businesses.length, source: `${HOPEWELL_BASE}/members/`, timestamp: new Date().toISOString(), persisted: false };
+  }
+  const businesses = snap.docs.map((doc) => doc.data()).sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+  return { businesses, total: businesses.length, source: `${HOPEWELL_BASE}/members/`, timestamp: new Date().toISOString(), persisted: true };
+}));
+
+app.get('/api/hopewell-events', cache(300000, async () => {
+  let snap = await db.collection('hopewell_events').limit(500).get();
+  if (snap.empty) {
+    const events = await fetchHopewellEvents({ geocode: false, limit: 250 });
+    return { events, total: events.length, source: `${HOPEWELL_BASE}/events/calendar`, timestamp: new Date().toISOString(), persisted: false };
+  }
+  const events = snap.docs.map((doc) => doc.data()).sort((a, b) => String(a.startDate || '').localeCompare(String(b.startDate || '')));
+  return { events, total: events.length, source: `${HOPEWELL_BASE}/events/calendar`, timestamp: new Date().toISOString(), persisted: true };
+}));
+
+app.all('/api/hopewell/update', async (req, res) => {
+  try {
+    const limit = Math.min(Number(req.query.limit || req.body?.limit || 600), 1000);
+    const geocode = String(req.query.geocode ?? req.body?.geocode ?? '1') !== '0';
+    const [businesses, events] = await Promise.all([
+      fetchHopewellBusinesses({ geocode, limit }),
+      fetchHopewellEvents({ geocode, limit: 250 }),
+    ]);
+    await clearCollection('hopewell_businesses');
+    await clearCollection('hopewell_events');
+    await writeCollection('hopewell_businesses', businesses);
+    await writeCollection('hopewell_events', events);
+    jsonCache.clear();
+    res.json({
+      inserted_or_updated: { businesses: businesses.length, events: events.length },
+      geocode,
+      business_geocoded: businesses.filter((b) => b.data_confidence >= 90).length,
+      event_geocoded: events.filter((e) => e.data_confidence >= 80).length,
+      event_window: '2026-06-01 through 2026-12-31',
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err) {
+    console.error('[AutoNateAI Intel Functions] Hopewell update failed', err);
+    res.status(500).json({ error: 'Hopewell update failed', detail: err instanceof Error ? err.message : 'Unknown error' });
   }
 });
 

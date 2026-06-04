@@ -32,6 +32,8 @@ const LAYER_GROUPS = [
       { key: 'funded_faith_orgs', label: 'Funded Faith Orgs', icon: HandHeart, color: '#FFF7CC', dataKey: 'funded_faith_orgs' },
       { key: 'sikeston_businesses', label: 'Sikeston Businesses', icon: BriefcaseBusiness, color: '#00D1B2', dataKey: 'sikeston_businesses' },
       { key: 'sikeston_events', label: 'Sikeston Events', icon: CalendarDays, color: '#FFB020', dataKey: 'sikeston_events' },
+      { key: 'hopewell_businesses', label: 'Hopewell Businesses', icon: BriefcaseBusiness, color: '#7CFF6B', dataKey: 'hopewell_businesses' },
+      { key: 'hopewell_events', label: 'Hopewell Events', icon: CalendarDays, color: '#4FB3FF', dataKey: 'hopewell_events' },
       { key: 'federal_power_house', label: 'U.S. Representatives', icon: Users, color: '#FFFFFF', dataKey: 'federal_power', countFilter: (p: any) => p.branch === 'congress' && p.chamber === 'House' },
       { key: 'federal_power_senate', label: 'U.S. Senators', icon: Users, color: '#D4AF37', dataKey: 'federal_power', countFilter: (p: any) => p.branch === 'congress' && p.chamber === 'Senate' },
       { key: 'federal_power_judicial', label: 'Federal Judges', icon: Landmark, color: '#B388FF', dataKey: 'federal_power', countFilter: (p: any) => p.branch === 'judicial' },

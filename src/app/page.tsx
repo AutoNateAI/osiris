@@ -181,7 +181,7 @@ function EntityDetailModal({ entity, onClose }: { entity: any; onClose: () => vo
   );
 }
 
-function SikestonEventsPanel({ events }: { events: any[] }) {
+function RegionalEventsPanel({ events, title, color }: { events: any[]; title: string; color: string }) {
   const upcoming = (Array.isArray(events) ? events : [])
     .filter((event) => event?.startDate)
     .slice()
@@ -192,8 +192,8 @@ function SikestonEventsPanel({ events }: { events: any[] }) {
     <motion.div initial={{ opacity: 0, x: 18 }} animate={{ opacity: 1, x: 0 }} className="glass-panel p-3 pointer-events-auto w-[330px] max-w-[calc(100vw-24px)]">
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-2">
-          <CalendarDays className="w-3.5 h-3.5 text-[#FFB020]" />
-          <span className="hud-text text-[11px] text-[var(--text-primary)] tracking-widest">SIKESTON EVENTS</span>
+          <CalendarDays className="w-3.5 h-3.5" style={{ color }} />
+          <span className="hud-text text-[11px] text-[var(--text-primary)] tracking-widest">{title}</span>
         </div>
         <span className="gotham-tag gotham-tag--info" style={{ fontSize: '7px', padding: '1px 5px' }}>{upcoming.length} NEXT</span>
       </div>
@@ -203,10 +203,10 @@ function SikestonEventsPanel({ events }: { events: any[] }) {
           const dateText = Number.isNaN(when.getTime()) ? event.date_label : when.toLocaleDateString(undefined, { month: 'short', day: 'numeric', weekday: 'short' });
           const timeText = Number.isNaN(when.getTime()) ? event.time_label : when.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
           return (
-            <a key={event.id || event.source_url} href={event.source_url} target="_blank" rel="noreferrer" className="block rounded border border-[var(--border-secondary)]/70 bg-black/20 p-2 hover:border-[#FFB020]/50 transition-colors">
+            <a key={event.id || event.source_url} href={event.source_url} target="_blank" rel="noreferrer" className="block rounded border border-[var(--border-secondary)]/70 bg-black/20 p-2 transition-colors" style={{ borderColor: undefined }} onMouseEnter={(e) => { e.currentTarget.style.borderColor = `${color}80`; }} onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--border-secondary)'; }}>
               <div className="text-[11px] font-mono font-bold text-[var(--text-primary)] leading-snug">{event.title}</div>
               <div className="mt-1 grid grid-cols-[70px_1fr] gap-2 text-[9px] font-mono">
-                <span className="text-[#FFB020]">{dateText}</span>
+                <span style={{ color }}>{dateText}</span>
                 <span className="text-[var(--text-secondary)]">{timeText}</span>
                 <span className="text-[var(--text-muted)]">WHERE</span>
                 <span className="text-[var(--text-secondary)] truncate">{event.location || 'Location TBD'}</span>
@@ -280,6 +280,8 @@ export default function Dashboard() {
     funded_faith_orgs: false,
     sikeston_businesses: false,
     sikeston_events: true,
+    hopewell_businesses: false,
+    hopewell_events: true,
     federal_power: false,
     federal_power_house: true,
     federal_power_senate: true,
@@ -569,6 +571,14 @@ export default function Dashboard() {
       fetchEndpoint('/api/sikeston-events', d => ({ sikeston_events: d.events }));
       layerFetchedRef.current.add('sikeston_events');
     }
+    if (activeLayers.hopewell_businesses && !layerFetchedRef.current.has('hopewell_businesses')) {
+      fetchEndpoint('/api/hopewell-businesses', d => ({ hopewell_businesses: d.businesses }));
+      layerFetchedRef.current.add('hopewell_businesses');
+    }
+    if (activeLayers.hopewell_events && !layerFetchedRef.current.has('hopewell_events')) {
+      fetchEndpoint('/api/hopewell-events', d => ({ hopewell_events: d.events }));
+      layerFetchedRef.current.add('hopewell_events');
+    }
     if ((activeLayers.federal_power || activeLayers.federal_power_house || activeLayers.federal_power_senate || activeLayers.federal_power_judicial || activeLayers.federal_power_white_house) && !layerFetchedRef.current.has('federal_power')) {
       fetchEndpoint('/api/federal-power', d => ({ federal_power: d.people }));
       layerFetchedRef.current.add('federal_power');
@@ -831,7 +841,13 @@ export default function Dashboard() {
 
       {activeLayers.sikeston_events && (
         <div className="absolute top-[88px] right-3 z-[210] pointer-events-none hidden xl:block">
-          <SikestonEventsPanel events={data.sikeston_events || []} />
+          <RegionalEventsPanel events={data.sikeston_events || []} title="SIKESTON EVENTS" color="#FFB020" />
+        </div>
+      )}
+
+      {activeLayers.hopewell_events && (
+        <div className="absolute top-[88px] right-3 z-[210] pointer-events-none hidden xl:block" style={{ transform: activeLayers.sikeston_events ? 'translateY(392px)' : undefined }}>
+          <RegionalEventsPanel events={data.hopewell_events || []} title="HOPEWELL EVENTS" color="#4FB3FF" />
         </div>
       )}
 
