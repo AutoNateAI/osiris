@@ -437,7 +437,7 @@ export default function Dashboard() {
 
   // ── SHARED FETCH UTILITY (Fixes #107 — single definition, not 3 copies) ──
   const fetchEndpoint = useCallback(async (url: string, transform?: (d: any) => any, options?: RequestInit) => {
-    if (typeof document !== 'undefined' && document.hidden) return;
+    if (typeof document !== 'undefined' && document.hidden) return false;
     try {
       const res = await authenticatedFetch(url, options);
       if (res.ok) {
@@ -446,11 +446,13 @@ export default function Dashboard() {
         dataRef.current = { ...dataRef.current, ...d };
         setDataVersion(v => v + 1);
         setBackendStatus('connected');
+        return true;
       }
     } catch (e) {
       console.warn('[AutoNateAI Intel] Suppressed error:', e instanceof Error ? e.message : e);
       setBackendStatus('error');
     }
+    return false;
   }, []);
 
   // ── PROGRESSIVE DATA LOADING (request-optimized) ──
@@ -564,20 +566,20 @@ export default function Dashboard() {
       layerFetchedRef.current.add('funded_faith_orgs');
     }
     if (activeLayers.sikeston_businesses && !layerFetchedRef.current.has('sikeston_businesses')) {
-      fetchEndpoint('/api/sikeston-businesses', d => ({ sikeston_businesses: d.businesses }));
-      layerFetchedRef.current.add('sikeston_businesses');
+      fetchEndpoint('/api/sikeston-businesses', d => ({ sikeston_businesses: d.businesses }))
+        .then(ok => { if (ok) layerFetchedRef.current.add('sikeston_businesses'); });
     }
     if (activeLayers.sikeston_events && !layerFetchedRef.current.has('sikeston_events')) {
-      fetchEndpoint('/api/sikeston-events', d => ({ sikeston_events: d.events }));
-      layerFetchedRef.current.add('sikeston_events');
+      fetchEndpoint('/api/sikeston-events', d => ({ sikeston_events: d.events }))
+        .then(ok => { if (ok) layerFetchedRef.current.add('sikeston_events'); });
     }
     if (activeLayers.hopewell_businesses && !layerFetchedRef.current.has('hopewell_businesses')) {
-      fetchEndpoint('/api/hopewell-businesses', d => ({ hopewell_businesses: d.businesses }));
-      layerFetchedRef.current.add('hopewell_businesses');
+      fetchEndpoint('/api/hopewell-businesses', d => ({ hopewell_businesses: d.businesses }))
+        .then(ok => { if (ok) layerFetchedRef.current.add('hopewell_businesses'); });
     }
     if (activeLayers.hopewell_events && !layerFetchedRef.current.has('hopewell_events')) {
-      fetchEndpoint('/api/hopewell-events', d => ({ hopewell_events: d.events }));
-      layerFetchedRef.current.add('hopewell_events');
+      fetchEndpoint('/api/hopewell-events', d => ({ hopewell_events: d.events }))
+        .then(ok => { if (ok) layerFetchedRef.current.add('hopewell_events'); });
     }
     if ((activeLayers.federal_power || activeLayers.federal_power_house || activeLayers.federal_power_senate || activeLayers.federal_power_judicial || activeLayers.federal_power_white_house) && !layerFetchedRef.current.has('federal_power')) {
       fetchEndpoint('/api/federal-power', d => ({ federal_power: d.people }));
