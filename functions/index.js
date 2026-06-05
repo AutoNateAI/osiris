@@ -4,6 +4,7 @@ import express from 'express';
 import { initializeApp } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
+import { defineSecret } from 'firebase-functions/params';
 import { onRequest } from 'firebase-functions/v2/https';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import YAML from 'yaml';
@@ -11,6 +12,7 @@ import { researchUniversities } from './research-universities.js';
 
 initializeApp();
 const db = getFirestore();
+const githubTokenSecret = defineSecret('GITHUB_TOKEN');
 
 const allowedOrigins = new Set([
   'http://localhost:3000',
@@ -472,20 +474,32 @@ async function fetchHopewellEvents({ geocode = false, limit = 250 } = {}) {
 
 const GITHUB_API_BASE = 'https://api.github.com';
 const ARXIV_API_BASE = 'https://export.arxiv.org/api/query';
+const OPENALEX_API_BASE = 'https://api.openalex.org';
+const OPENALEX_ARXIV_SOURCE_ID = 'https://openalex.org/S4306400194';
+const OPENALEX_MAILTO = 'autonate.ai@gmail.com';
 
 function githubHeaders() {
+  const githubToken = process.env.GITHUB_TOKEN || githubTokenSecret.value();
   const headers = {
     Accept: 'application/vnd.github+json',
     'User-Agent': 'AutoNateAI-OSIRIS/1.0 university research scanner',
     'X-GitHub-Api-Version': '2022-11-28',
   };
-  if (process.env.GITHUB_TOKEN) headers.Authorization = `Bearer ${process.env.GITHUB_TOKEN}`;
+  if (githubToken) headers.Authorization = `Bearer ${githubToken}`;
   return headers;
 }
 
 async function fetchGithubJson(path) {
   return fetchJson(`${GITHUB_API_BASE}${path}`, {
     headers: githubHeaders(),
+    signal: AbortSignal.timeout(20000),
+  });
+}
+
+async function fetchOpenAlexJson(path) {
+  const separator = path.includes('?') ? '&' : '?';
+  return fetchJson(`${OPENALEX_API_BASE}${path}${separator}mailto=${encodeURIComponent(OPENALEX_MAILTO)}`, {
+    headers: { 'User-Agent': `AutoNateAI-OSIRIS/1.0 mailto:${OPENALEX_MAILTO}` },
     signal: AbortSignal.timeout(20000),
   });
 }
@@ -531,6 +545,7 @@ async function fetchArxivPapersForUniversity(university, limit = 5) {
   });
   return parseArxivEntries(xml).map((paper) => ({
     ...paper,
+    id: `${university.id}-${paper.id}`,
     university_id: university.id,
     university_name: university.name,
     lat: university.lat,
@@ -554,6 +569,78 @@ async function fetchRecentArxivCorpus(limit = 300) {
   return parseArxivEntries(xml);
 }
 
+function openAlexIdTail(id = '') {
+  return String(id).split('/').pop() || '';
+}
+
+function arxivIdFromUrl(url = '') {
+  return String(url)
+    .replace(/^https?:\/\/(?:www\.)?arxiv\.org\/(?:abs|pdf)\//i, '')
+    .replace(/^https?:\/\/doi\.org\/10\.48550\/arxiv\./i, '')
+    .replace(/\.pdf$/i, '')
+    .split(/[?#]/)[0];
+}
+
+function extractOpenAlexArxivLocation(work = {}) {
+  return (work.locations || []).find((location) => location.source?.id === OPENALEX_ARXIV_SOURCE_ID && (location.landing_page_url || location.pdf_url));
+}
+
+function openAlexWorkToArxivPaper(work, university, arxivLocation) {
+  const sourceUrl = arxivLocation?.landing_page_url || work.primary_location?.landing_page_url || work.id;
+  const arxivId = arxivIdFromUrl(sourceUrl) || openAlexIdTail(work.id);
+  const authors = (work.authorships || []).map((authorship) => authorship.author?.display_name).filter(Boolean);
+  return {
+    id: `${university.id}-arxiv-${arxivId.replace(/[^a-zA-Z0-9._-]/g, '-')}`,
+    arxiv_id: arxivId,
+    openalex_id: work.id || '',
+    title: work.title || work.display_name || '',
+    abstract: '',
+    authors,
+    categories: (work.concepts || []).slice(0, 6).map((concept) => concept.display_name).filter(Boolean),
+    primary_category: work.concepts?.[0]?.display_name || '',
+    published_at: work.publication_date || '',
+    updated_at: work.updated_date || '',
+    pdf_url: arxivLocation?.pdf_url || '',
+    source_url: sourceUrl,
+    doi: work.doi || '',
+    university_id: university.id,
+    university_name: university.name,
+    lat: university.lat,
+    lng: university.lng,
+    discovery_source: 'openalex_arxiv_location',
+    last_seen: new Date().toISOString(),
+  };
+}
+
+async function fetchOpenAlexArxivPapersForUniversity(university, limit = 5) {
+  const institutionQuery = new URLSearchParams({
+    search: university.name,
+    'per-page': '1',
+    select: 'id,display_name,country_code',
+  });
+  const institutionResponse = await fetchOpenAlexJson(`/institutions?${institutionQuery.toString()}`);
+  const institution = institutionResponse.results?.find((item) => item.country_code === 'US') || institutionResponse.results?.[0];
+  const institutionId = openAlexIdTail(institution?.id);
+  if (!institutionId) return [];
+
+  const today = new Date().toISOString().slice(0, 10);
+  const lastYear = new Date(Date.now() - 365 * 86400000).toISOString().slice(0, 10);
+  const worksQuery = new URLSearchParams({
+    filter: `institutions.id:${institutionId},locations.source.id:${openAlexIdTail(OPENALEX_ARXIV_SOURCE_ID)},from_publication_date:${lastYear},to_publication_date:${today}`,
+    sort: 'publication_date:desc',
+    'per-page': String(Math.min(Math.max(limit, 1), 20)),
+    select: 'id,doi,title,display_name,publication_date,updated_date,locations,primary_location,authorships,concepts',
+  });
+  const worksResponse = await fetchOpenAlexJson(`/works?${worksQuery.toString()}`);
+  return (worksResponse.results || [])
+    .map((work) => {
+      const arxivLocation = extractOpenAlexArxivLocation(work);
+      return arxivLocation ? openAlexWorkToArxivPaper(work, university, arxivLocation) : null;
+    })
+    .filter(Boolean)
+    .slice(0, limit);
+}
+
 function matchArxivPapersForUniversity(corpus, university, limit = 5) {
   const needles = [university.name, university.short_name, ...(university.aliases || [])]
     .map((value) => String(value || '').toLowerCase())
@@ -566,6 +653,7 @@ function matchArxivPapersForUniversity(corpus, university, limit = 5) {
     .slice(0, limit)
     .map((paper) => ({
       ...paper,
+      id: `${university.id}-${paper.id}`,
       university_id: university.id,
       university_name: university.name,
       lat: university.lat,
@@ -676,7 +764,7 @@ function universityNarrative(university, repos, papers) {
   return `${university.short_name} is seeded for monitoring; GitHub and arXiv signals will strengthen as scanner coverage expands.`;
 }
 
-async function runUniversityResearchScan({ limit = 100, repoLimit = 5, arxivLimit = 5 } = {}) {
+export async function runUniversityResearchScan({ limit = 100, repoLimit = 5, arxivLimit = 5, arxivBackfill = false } = {}) {
   const scanStarted = new Date().toISOString();
   const universities = researchUniversities.slice(0, Math.min(limit, researchUniversities.length));
   await writeCollection('research_universities', researchUniversities.map((u, index) => ({
@@ -698,7 +786,19 @@ async function runUniversityResearchScan({ limit = 100, repoLimit = 5, arxivLimi
 
   for (const university of universities) {
     const github = await scanUniversityGithub(university, { repoLimit });
-    const papers = matchArxivPapersForUniversity(arxivCorpus, university, arxivLimit);
+    const paperMap = new Map(matchArxivPapersForUniversity(arxivCorpus, university, arxivLimit).map((paper) => [paper.id, paper]));
+    if (arxivBackfill) {
+      try {
+        const openAlexPapers = await fetchOpenAlexArxivPapersForUniversity(university, arxivLimit);
+        for (const paper of openAlexPapers) paperMap.set(paper.id, paper);
+        await sleep(150);
+      } catch (err) {
+        console.warn('[AutoNateAI Intel Functions] OpenAlex arXiv university backfill failed', university.id, err instanceof Error ? err.message : err);
+      }
+    }
+    const papers = [...paperMap.values()]
+      .sort((a, b) => String(b.published_at || '').localeCompare(String(a.published_at || '')))
+      .slice(0, arxivLimit);
     allOrgs.push(...github.orgs);
     allRepos.push(...github.repos);
     allSnapshots.push(...github.snapshots);
@@ -755,6 +855,7 @@ async function runUniversityResearchScan({ limit = 100, repoLimit = 5, arxivLimi
     repo_count: allRepos.length,
     repo_snapshot_count: allSnapshots.length,
     arxiv_paper_count: allPapers.length,
+    arxiv_backfill: Boolean(arxivBackfill),
   }]);
   jsonCache.clear();
   return {
@@ -763,6 +864,7 @@ async function runUniversityResearchScan({ limit = 100, repoLimit = 5, arxivLimi
     repo_count: allRepos.length,
     repo_snapshot_count: allSnapshots.length,
     arxiv_paper_count: allPapers.length,
+    arxiv_backfill: Boolean(arxivBackfill),
     timestamp: new Date().toISOString(),
   };
 }
@@ -3779,7 +3881,8 @@ app.all('/api/university-research/update', async (req, res) => {
     const limit = Math.min(Number(req.query.limit || req.body?.limit || 100), 100);
     const repoLimit = Math.min(Number(req.query.repo_limit || req.body?.repo_limit || 5), 20);
     const arxivLimit = Math.min(Number(req.query.arxiv_limit || req.body?.arxiv_limit || 5), 20);
-    const result = await runUniversityResearchScan({ limit, repoLimit, arxivLimit });
+    const arxivBackfill = String(req.query.arxiv_backfill || req.body?.arxiv_backfill || '').toLowerCase() === 'true';
+    const result = await runUniversityResearchScan({ limit, repoLimit, arxivLimit, arxivBackfill });
     res.json(result);
   } catch (err) {
     console.error('[AutoNateAI Intel Functions] University research update failed', err);
@@ -4007,6 +4110,7 @@ export const intelApi = onRequest({
   region: 'us-central1',
   timeoutSeconds: 60,
   memory: '512MiB',
+  secrets: [githubTokenSecret],
   serviceAccount: 'firebase-adminsdk-fbsvc@autonateai-learning-hub.iam.gserviceaccount.com',
   cors: false,
 }, app);
@@ -4034,6 +4138,7 @@ export const universityResearchScanner = onSchedule({
   timeZone: 'America/Chicago',
   timeoutSeconds: 540,
   memory: '512MiB',
+  secrets: [githubTokenSecret],
   serviceAccount: 'firebase-adminsdk-fbsvc@autonateai-learning-hub.iam.gserviceaccount.com',
 }, async () => {
   const result = await runUniversityResearchScan({ limit: 100, repoLimit: 5, arxivLimit: 5 });
