@@ -42,6 +42,7 @@ type UniversitySignal = {
 
 type RepoSignal = {
   id: string;
+  university_id?: string;
   repo_full_name: string;
   name: string;
   html_url?: string;
@@ -96,9 +97,67 @@ function metricDelta(snapshots: RepoSnapshot[], key: 'stars' | 'forks' | 'watche
   return Number(newest[key] || 0) - Number(oldest[key] || 0);
 }
 
+function latestRepoPush(repos: RepoSignal[]) {
+  return Math.max(0, ...repos.map((repo) => repo.pushed_at ? Date.parse(repo.pushed_at) || 0 : 0));
+}
+
+function SnapshotLineChart({ snapshots }: { snapshots: RepoSnapshot[] }) {
+  const ordered = snapshots.slice().sort((a, b) => String(a.snapshot_at || '').localeCompare(String(b.snapshot_at || ''))).slice(-36);
+  if (ordered.length < 2) {
+    return <div className="h-[150px] flex items-center justify-center text-[10px] font-mono text-[var(--text-muted)] border border-dashed border-[var(--border-secondary)] rounded-lg">More snapshots needed for trend line.</div>;
+  }
+  const width = 300;
+  const height = 126;
+  const pad = 14;
+  const xFor = (index: number) => pad + (index / Math.max(1, ordered.length - 1)) * (width - pad * 2);
+  const yFor = (value: number, min: number, max: number) => {
+    const span = Math.max(1, max - min);
+    return height - pad - ((value - min) / span) * (height - pad * 2);
+  };
+  const stars = ordered.map((snap) => Number(snap.stars || 0));
+  const momentum = ordered.map((snap) => Number(snap.momentum_score || 0));
+  const starMin = Math.min(...stars);
+  const starMax = Math.max(...stars);
+  const momMin = Math.min(...momentum);
+  const momMax = Math.max(...momentum);
+  const starPoints = ordered.map((snap, index) => `${xFor(index)},${yFor(Number(snap.stars || 0), starMin, starMax)}`).join(' ');
+  const momentumPoints = ordered.map((snap, index) => `${xFor(index)},${yFor(Number(snap.momentum_score || 0), momMin, momMax)}`).join(' ');
+
+  return (
+    <div className="mt-4 rounded-lg border border-[var(--border-secondary)] bg-black/20 p-2">
+      <div className="flex items-center justify-between text-[8px] font-mono text-[var(--text-muted)] mb-1">
+        <span>{shortDate(ordered[0]?.snapshot_at)}</span>
+        <div className="flex items-center gap-3">
+          <span className="text-[#A3E635]">stars</span>
+          <span className="text-[var(--cyan-primary)]">momentum</span>
+        </div>
+        <span>{shortDate(ordered[ordered.length - 1]?.snapshot_at)}</span>
+      </div>
+      <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-[150px]" role="img" aria-label="Repository trend line">
+        {[0, 1, 2, 3].map((line) => (
+          <line key={line} x1={pad} x2={width - pad} y1={pad + line * ((height - pad * 2) / 3)} y2={pad + line * ((height - pad * 2) / 3)} stroke="rgba(212,175,55,0.08)" strokeWidth="1" />
+        ))}
+        <polyline points={starPoints} fill="none" stroke="#A3E635" strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
+        <polyline points={momentumPoints} fill="none" stroke="var(--cyan-primary)" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+        {ordered.map((snap, index) => (
+          <g key={snap.id || `${snap.snapshot_at}-${index}`}>
+            <circle cx={xFor(index)} cy={yFor(Number(snap.stars || 0), starMin, starMax)} r="2.4" fill="#A3E635" />
+            <circle cx={xFor(index)} cy={yFor(Number(snap.momentum_score || 0), momMin, momMax)} r="2" fill="var(--cyan-primary)" />
+          </g>
+        ))}
+      </svg>
+      <div className="flex items-center justify-between text-[8px] font-mono text-[var(--text-muted)]">
+        <span>{fmt(stars[0])} to {fmt(stars[stars.length - 1])} stars</span>
+        <span>{momentum[0]} to {momentum[momentum.length - 1]} momentum</span>
+      </div>
+    </div>
+  );
+}
+
 function ResearchExplorerInner({ universities: mapUniversities = [], onLocate }: { universities?: UniversitySignal[]; onLocate?: (lat: number, lng: number, zoom?: number) => void }) {
   const [open, setOpen] = useState(false);
   const [universities, setUniversities] = useState<UniversitySignal[]>(mapUniversities);
+  const [allRepos, setAllRepos] = useState<RepoSignal[]>([]);
   const [selectedId, setSelectedId] = useState('');
   const [repos, setRepos] = useState<RepoSignal[]>([]);
   const [papers, setPapers] = useState<PaperSignal[]>([]);
@@ -108,6 +167,8 @@ function ResearchExplorerInner({ universities: mapUniversities = [], onLocate }:
   const [loading, setLoading] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
   const [snapshotLoading, setSnapshotLoading] = useState(false);
+  const [schoolSort, setSchoolSort] = useState<'score' | 'latest' | 'repos' | 'papers'>('score');
+  const [repoSort, setRepoSort] = useState<'latest' | 'momentum' | 'stars' | 'forks'>('latest');
 
   const loadUniversities = useCallback(async () => {
     setLoading(true);
@@ -117,6 +178,10 @@ function ResearchExplorerInner({ universities: mapUniversities = [], onLocate }:
       const next = Array.isArray(json.universities) ? json.universities : [];
       setUniversities(next);
       setSelectedId((current) => current || next[0]?.id || '');
+      authenticatedFetch('/api/university-research/repos?limit=2000')
+        .then((r) => r.json())
+        .then((repoJson) => setAllRepos(Array.isArray(repoJson.repos) ? repoJson.repos : []))
+        .catch(() => {});
     } finally {
       setLoading(false);
     }
@@ -130,8 +195,9 @@ function ResearchExplorerInner({ universities: mapUniversities = [], onLocate }:
   }, [mapUniversities]);
 
   useEffect(() => {
-    if (open && !universities.length) loadUniversities();
-  }, [open, universities.length, loadUniversities]);
+    if (!open) return;
+    if (!universities.length || !allRepos.length) loadUniversities();
+  }, [open, universities.length, allRepos.length, loadUniversities]);
 
   const selected = useMemo(
     () => universities.find((item) => item.id === selectedId) || universities[0],
@@ -150,7 +216,7 @@ function ResearchExplorerInner({ universities: mapUniversities = [], onLocate }:
       const nextRepos = Array.isArray(repoJson.repos) ? repoJson.repos : [];
       setRepos(nextRepos);
       setPapers(Array.isArray(paperJson.papers) ? paperJson.papers : []);
-      setActiveRepoId(nextRepos[0]?.id || '');
+      setActiveRepoId(nextRepos.slice().sort((a: RepoSignal, b: RepoSignal) => (b.pushed_at ? Date.parse(b.pushed_at) || 0 : 0) - (a.pushed_at ? Date.parse(a.pushed_at) || 0 : 0))[0]?.id || '');
     }).finally(() => {
       if (!cancelled) setDetailLoading(false);
     });
@@ -177,10 +243,20 @@ function ResearchExplorerInner({ universities: mapUniversities = [], onLocate }:
 
   const filteredUniversities = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    const base = universities.slice().sort((a, b) => Number(b.opportunity_score || 0) - Number(a.opportunity_score || 0));
+    const reposByUniversity = new Map<string, RepoSignal[]>();
+    allRepos.forEach((repo) => {
+      if (!repo.university_id) return;
+      reposByUniversity.set(repo.university_id, [...(reposByUniversity.get(repo.university_id) || []), repo]);
+    });
+    const base = universities.slice().sort((a, b) => {
+      if (schoolSort === 'latest') return latestRepoPush(reposByUniversity.get(b.id) || []) - latestRepoPush(reposByUniversity.get(a.id) || []);
+      if (schoolSort === 'repos') return Number(b.repo_count || 0) - Number(a.repo_count || 0);
+      if (schoolSort === 'papers') return Number(b.arxiv_paper_count || 0) - Number(a.arxiv_paper_count || 0);
+      return Number(b.opportunity_score || 0) - Number(a.opportunity_score || 0);
+    });
     if (!needle) return base;
     return base.filter((item) => `${item.name} ${item.short_name || ''} ${item.city || ''} ${item.state || ''}`.toLowerCase().includes(needle));
-  }, [universities, query]);
+  }, [universities, allRepos, schoolSort, query]);
 
   const totals = useMemo(() => ({
     repos: universities.reduce((sum, item) => sum + Number(item.repo_count || 0), 0),
@@ -199,8 +275,13 @@ function ResearchExplorerInner({ universities: mapUniversities = [], onLocate }:
   }, [repos]);
 
   const activeRepo = repos.find((repo) => repo.id === activeRepoId) || repos[0];
-  const maxSnapshotStars = Math.max(1, ...snapshots.map((snap) => Number(snap.stars || 0)));
-  const maxSnapshotMomentum = Math.max(1, ...snapshots.map((snap) => Number(snap.momentum_score || 0)));
+  const sortedRepos = useMemo(() => repos.slice().sort((a, b) => {
+    if (repoSort === 'momentum') return Number(b.momentum_score || 0) - Number(a.momentum_score || 0);
+    if (repoSort === 'stars') return Number(b.stars || 0) - Number(a.stars || 0);
+    if (repoSort === 'forks') return Number(b.forks || 0) - Number(a.forks || 0);
+    return (b.pushed_at ? Date.parse(b.pushed_at) || 0 : 0) - (a.pushed_at ? Date.parse(a.pushed_at) || 0 : 0);
+  }), [repos, repoSort]);
+  const selectedRepoCount = repos.length || selected?.repo_count || 0;
 
   const button = (
     <button
@@ -269,6 +350,22 @@ function ResearchExplorerInner({ universities: mapUniversities = [], onLocate }:
                     className="bg-transparent outline-none flex-1 text-[11px] font-mono text-[var(--text-primary)] placeholder:text-[var(--text-muted)]"
                   />
                 </div>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {[
+                    ['score', 'Score'],
+                    ['latest', 'Recent'],
+                    ['repos', 'Repos'],
+                    ['papers', 'Papers'],
+                  ].map(([id, label]) => (
+                    <button
+                      key={id}
+                      onClick={() => setSchoolSort(id as typeof schoolSort)}
+                      className={`px-2 py-1.5 rounded border text-[8px] font-mono tracking-widest transition-colors ${schoolSort === id ? 'border-[#A3E635]/40 bg-[#A3E635]/10 text-[#A3E635]' : 'border-[var(--border-secondary)] text-[var(--text-muted)] hover:text-[var(--text-secondary)]'}`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
                 <div className="flex-1 min-h-0 overflow-y-auto styled-scrollbar space-y-1 pr-1">
                   {filteredUniversities.map((item, index) => (
                     <button
@@ -317,7 +414,7 @@ function ResearchExplorerInner({ universities: mapUniversities = [], onLocate }:
                   <p className="mt-3 text-[11px] leading-relaxed text-[var(--text-secondary)] font-mono">{selected?.narrative || 'Research signal is ready for monitoring.'}</p>
                   <div className="grid grid-cols-4 gap-2 mt-4">
                     {[
-                      ['REPOS', selected?.repo_count, Database],
+                      ['REPOS', selectedRepoCount, Database],
                       ['PAPERS', selected?.arxiv_paper_count, BookOpen],
                       ['STARS', selected?.total_stars, Star],
                       ['FORKS', selected?.total_forks, GitFork],
@@ -340,7 +437,23 @@ function ResearchExplorerInner({ universities: mapUniversities = [], onLocate }:
                       <span className="hud-text text-[11px]">REPOSITORIES</span>
                       {detailLoading && <Loader2 className="w-3 h-3 animate-spin text-[var(--text-muted)]" />}
                     </div>
-                    <span className="text-[9px] font-mono text-[var(--text-muted)]">{repos.length} loaded</span>
+                    <div className="flex items-center gap-1.5">
+                      {[
+                        ['latest', 'recent'],
+                        ['momentum', 'momentum'],
+                        ['stars', 'stars'],
+                        ['forks', 'forks'],
+                      ].map(([id, label]) => (
+                        <button
+                          key={id}
+                          onClick={() => setRepoSort(id as typeof repoSort)}
+                          className={`px-2 py-1 rounded border text-[8px] font-mono transition-colors ${repoSort === id ? 'border-[#A3E635]/40 bg-[#A3E635]/10 text-[#A3E635]' : 'border-[var(--border-secondary)] text-[var(--text-muted)] hover:text-[var(--text-secondary)]'}`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                      <span className="ml-1 text-[9px] font-mono text-[var(--text-muted)]">{repos.length} loaded</span>
+                    </div>
                   </div>
                   <div className="flex-1 min-h-0 overflow-y-auto styled-scrollbar p-3">
                     {!detailLoading && repos.length === 0 && (
@@ -348,7 +461,7 @@ function ResearchExplorerInner({ universities: mapUniversities = [], onLocate }:
                         No repository records returned for this university yet.
                       </div>
                     )}
-                    {repos.map((repo) => (
+                    {sortedRepos.map((repo) => (
                       <button
                         key={repo.id}
                         onClick={() => setActiveRepoId(repo.id)}
@@ -369,7 +482,7 @@ function ResearchExplorerInner({ universities: mapUniversities = [], onLocate }:
                             </div>
                           </div>
                           <div className="grid grid-cols-2 gap-1.5 text-right shrink-0 min-w-[120px]">
-                            <span className="rounded bg-[#A3E635]/10 px-2 py-1 text-[9px] font-mono text-[#A3E635]">MOM {repo.momentum_score || 0}</span>
+                            <span className="rounded bg-[#A3E635]/10 px-2 py-1 text-[9px] font-mono text-[#A3E635]">MOMENTUM {repo.momentum_score || 0}</span>
                             <span className="rounded bg-[var(--gold-primary)]/10 px-2 py-1 text-[9px] font-mono text-[var(--gold-primary)]">{fmt(repo.stars)} ★</span>
                             <span className="rounded bg-[var(--cyan-primary)]/10 px-2 py-1 text-[9px] font-mono text-[var(--cyan-primary)]">{fmt(repo.forks)} forks</span>
                             <span className="rounded bg-white/[0.04] px-2 py-1 text-[9px] font-mono text-[var(--text-secondary)]">{fmt(repo.open_issues)} issues</span>
@@ -381,8 +494,8 @@ function ResearchExplorerInner({ universities: mapUniversities = [], onLocate }:
                 </section>
               </main>
 
-              <aside className="col-span-12 lg:col-span-3 min-h-0 flex flex-col gap-3">
-                <section className="glass-panel-sm p-4">
+              <aside className="col-span-12 lg:col-span-3 min-h-0 flex flex-col gap-3 overflow-y-auto styled-scrollbar pr-1">
+                <section className="glass-panel-sm p-4 shrink-0">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <Activity className="w-4 h-4 text-[#A3E635]" />
@@ -400,7 +513,7 @@ function ResearchExplorerInner({ universities: mapUniversities = [], onLocate }:
                       ['STAR DELTA', metricDelta(snapshots, 'stars')],
                       ['FORK DELTA', metricDelta(snapshots, 'forks')],
                       ['WATCH DELTA', metricDelta(snapshots, 'watchers')],
-                      ['MOM DELTA', metricDelta(snapshots, 'momentum_score')],
+                      ['MOMENTUM DELTA', metricDelta(snapshots, 'momentum_score')],
                     ].map(([label, value]) => (
                       <div key={label} className="bg-black/20 rounded-lg border border-[var(--border-secondary)] p-2">
                         <div className="hud-label">{label}</div>
@@ -408,26 +521,10 @@ function ResearchExplorerInner({ universities: mapUniversities = [], onLocate }:
                       </div>
                     ))}
                   </div>
-                  <div className="mt-4 space-y-2 max-h-[190px] overflow-y-auto styled-scrollbar pr-1">
-                    {snapshotLoading && <div className="text-[10px] font-mono text-[var(--text-muted)]">Loading snapshots...</div>}
-                    {snapshots.slice(0, 16).map((snapshot) => (
-                      <div key={snapshot.id} className="space-y-1">
-                        <div className="flex items-center justify-between text-[8px] font-mono text-[var(--text-muted)]">
-                          <span>{shortDate(snapshot.snapshot_at)}</span>
-                          <span>{fmt(snapshot.stars)}★ · {snapshot.momentum_score || 0} mom</span>
-                        </div>
-                        <div className="h-1.5 rounded-full bg-white/5 overflow-hidden">
-                          <div className="h-full bg-[#A3E635]" style={{ width: `${Math.max(3, Number(snapshot.stars || 0) / maxSnapshotStars * 100)}%` }} />
-                        </div>
-                        <div className="h-1 rounded-full bg-white/5 overflow-hidden">
-                          <div className="h-full bg-[var(--cyan-primary)]" style={{ width: `${Math.max(3, Number(snapshot.momentum_score || 0) / maxSnapshotMomentum * 100)}%` }} />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+                  {snapshotLoading ? <div className="mt-4 text-[10px] font-mono text-[var(--text-muted)]">Loading snapshots...</div> : <SnapshotLineChart snapshots={snapshots} />}
                 </section>
 
-                <section className="glass-panel-sm p-4">
+                <section className="glass-panel-sm p-4 shrink-0">
                   <div className="flex items-center gap-2 mb-3">
                     <BarChart3 className="w-4 h-4 text-[var(--cyan-primary)]" />
                     <span className="hud-text text-[11px]">LANGUAGES</span>
@@ -447,7 +544,7 @@ function ResearchExplorerInner({ universities: mapUniversities = [], onLocate }:
                   </div>
                 </section>
 
-                <section className="glass-panel-sm flex-1 min-h-0 flex flex-col">
+                <section className="glass-panel-sm h-[320px] shrink-0 flex flex-col">
                   <div className="px-4 py-3 border-b border-[var(--border-secondary)] flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <BookOpen className="w-4 h-4 text-[var(--cyan-primary)]" />
