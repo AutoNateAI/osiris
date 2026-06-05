@@ -3860,9 +3860,11 @@ app.get('/api/university-research/repos', cache(300000, async (req) => {
   const universityId = String(req.query.university_id || '');
   const limit = Math.min(Number(req.query.limit || 500), 2000);
   let query = db.collection('github_university_repos').orderBy('momentum_score', 'desc').limit(limit);
-  if (universityId) query = db.collection('github_university_repos').where('university_id', '==', universityId).orderBy('momentum_score', 'desc').limit(limit);
+  if (universityId) query = db.collection('github_university_repos').where('university_id', '==', universityId).limit(limit);
   const snap = await query.get();
-  const repos = snap.docs.map((doc) => doc.data());
+  const repos = snap.docs
+    .map((doc) => doc.data())
+    .sort((a, b) => Number(b.momentum_score || 0) - Number(a.momentum_score || 0));
   return { repos, total: repos.length, timestamp: new Date().toISOString() };
 }));
 
@@ -3870,9 +3872,11 @@ app.get('/api/university-research/papers', cache(300000, async (req) => {
   const universityId = String(req.query.university_id || '');
   const limit = Math.min(Number(req.query.limit || 500), 2000);
   let query = db.collection('arxiv_papers').orderBy('published_at', 'desc').limit(limit);
-  if (universityId) query = db.collection('arxiv_papers').where('university_id', '==', universityId).orderBy('published_at', 'desc').limit(limit);
+  if (universityId) query = db.collection('arxiv_papers').where('university_id', '==', universityId).limit(limit);
   const snap = await query.get();
-  const papers = snap.docs.map((doc) => doc.data());
+  const papers = snap.docs
+    .map((doc) => doc.data())
+    .sort((a, b) => String(b.published_at || '').localeCompare(String(a.published_at || '')));
   return { papers, total: papers.length, timestamp: new Date().toISOString() };
 }));
 

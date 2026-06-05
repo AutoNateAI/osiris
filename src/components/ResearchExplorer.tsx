@@ -342,22 +342,37 @@ function ResearchExplorerInner({ universities: mapUniversities = [], onLocate }:
                     </div>
                     <span className="text-[9px] font-mono text-[var(--text-muted)]">{repos.length} loaded</span>
                   </div>
-                  <div className="flex-1 min-h-0 overflow-y-auto styled-scrollbar">
+                  <div className="flex-1 min-h-0 overflow-y-auto styled-scrollbar p-3">
+                    {!detailLoading && repos.length === 0 && (
+                      <div className="h-full min-h-[220px] flex items-center justify-center text-[11px] font-mono text-[var(--text-muted)] border border-dashed border-[var(--border-secondary)] rounded-lg">
+                        No repository records returned for this university yet.
+                      </div>
+                    )}
                     {repos.map((repo) => (
                       <button
                         key={repo.id}
                         onClick={() => setActiveRepoId(repo.id)}
-                        className={`w-full text-left px-4 py-3 border-b border-[var(--border-secondary)]/50 hover:bg-white/[0.03] transition-colors ${activeRepo?.id === repo.id ? 'bg-[#A3E635]/10' : ''}`}
+                        className={`w-full text-left p-3 mb-2 rounded-lg border transition-colors ${activeRepo?.id === repo.id ? 'bg-[#A3E635]/10 border-[#A3E635]/40' : 'bg-black/20 border-[var(--border-secondary)] hover:border-[#A3E635]/25 hover:bg-white/[0.03]'}`}
                       >
-                        <div className="flex items-start justify-between gap-3">
+                        <div className="flex items-start justify-between gap-3 min-w-0">
                           <div className="min-w-0">
-                            <div className="text-[12px] font-mono text-[var(--text-primary)] truncate">{repo.repo_full_name}</div>
-                            <div className="text-[9px] font-mono text-[var(--text-muted)] truncate mt-1">{repo.description || 'No description'}</div>
+                            <div className="flex items-center gap-2 min-w-0">
+                              <div className="text-[12px] font-mono text-[var(--text-primary)] truncate">{repo.repo_full_name}</div>
+                              {repo.html_url && <ExternalLink className="w-3 h-3 text-[var(--text-muted)] shrink-0" />}
+                            </div>
+                            <div className="text-[9px] font-mono text-[var(--text-muted)] line-clamp-2 mt-1 leading-relaxed">{repo.description || 'No description'}</div>
+                            <div className="mt-2 flex flex-wrap gap-1.5">
+                              {repo.language && <span className="px-1.5 py-0.5 rounded bg-[var(--cyan-primary)]/10 border border-[var(--cyan-primary)]/20 text-[var(--cyan-primary)] text-[8px] font-mono">{repo.language}</span>}
+                              {(repo.topics || []).slice(0, 4).map((topic) => (
+                                <span key={topic} className="px-1.5 py-0.5 rounded bg-white/[0.03] border border-[var(--border-secondary)] text-[var(--text-secondary)] text-[8px] font-mono">{topic}</span>
+                              ))}
+                            </div>
                           </div>
-                          <div className="grid grid-cols-3 gap-2 text-right shrink-0">
-                            <span className="text-[9px] font-mono text-[#A3E635]">{repo.momentum_score || 0}</span>
-                            <span className="text-[9px] font-mono text-[var(--gold-primary)]">{fmt(repo.stars)}★</span>
-                            <span className="text-[9px] font-mono text-[var(--cyan-primary)]">{fmt(repo.forks)} forks</span>
+                          <div className="grid grid-cols-2 gap-1.5 text-right shrink-0 min-w-[120px]">
+                            <span className="rounded bg-[#A3E635]/10 px-2 py-1 text-[9px] font-mono text-[#A3E635]">MOM {repo.momentum_score || 0}</span>
+                            <span className="rounded bg-[var(--gold-primary)]/10 px-2 py-1 text-[9px] font-mono text-[var(--gold-primary)]">{fmt(repo.stars)} ★</span>
+                            <span className="rounded bg-[var(--cyan-primary)]/10 px-2 py-1 text-[9px] font-mono text-[var(--cyan-primary)]">{fmt(repo.forks)} forks</span>
+                            <span className="rounded bg-white/[0.04] px-2 py-1 text-[9px] font-mono text-[var(--text-secondary)]">{fmt(repo.open_issues)} issues</span>
                           </div>
                         </div>
                       </button>
@@ -440,14 +455,25 @@ function ResearchExplorerInner({ universities: mapUniversities = [], onLocate }:
                     </div>
                     <span className="text-[9px] font-mono text-[var(--text-muted)]">{papers.length}</span>
                   </div>
-                  <div className="flex-1 min-h-0 overflow-y-auto styled-scrollbar">
+                  <div className="flex-1 min-h-0 overflow-y-auto styled-scrollbar p-3">
+                    {!detailLoading && papers.length === 0 && (
+                      <div className="h-full min-h-[180px] flex items-center justify-center text-[11px] font-mono text-[var(--text-muted)] border border-dashed border-[var(--border-secondary)] rounded-lg">
+                        No arXiv-linked papers returned for this university yet.
+                      </div>
+                    )}
                     {papers.map((paper) => (
-                      <a key={paper.id} href={paper.source_url || paper.pdf_url || '#'} target="_blank" rel="noopener noreferrer" className="block px-4 py-3 border-b border-[var(--border-secondary)]/50 hover:bg-white/[0.03] transition-colors">
+                      <a key={paper.id} href={paper.source_url || paper.pdf_url || '#'} target="_blank" rel="noopener noreferrer" className="block p-3 mb-2 rounded-lg bg-black/20 border border-[var(--border-secondary)] hover:border-[var(--cyan-primary)]/35 hover:bg-white/[0.03] transition-colors">
                         <div className="flex items-start gap-2">
                           <ArrowUpRight className="w-3 h-3 text-[var(--cyan-primary)] mt-0.5 shrink-0" />
                           <div className="min-w-0">
                             <div className="text-[10px] font-mono text-[var(--text-primary)] leading-snug">{paper.title}</div>
-                            <div className="mt-1 text-[8px] font-mono text-[var(--text-muted)]">{shortDate(paper.published_at)} · {(paper.categories || []).slice(0, 2).join(', ') || 'research'}</div>
+                            <div className="mt-2 flex flex-wrap gap-1.5">
+                              <span className="px-1.5 py-0.5 rounded bg-[var(--cyan-primary)]/10 border border-[var(--cyan-primary)]/20 text-[var(--cyan-primary)] text-[8px] font-mono">{shortDate(paper.published_at)}</span>
+                              {(paper.categories || []).slice(0, 3).map((category) => (
+                                <span key={category} className="px-1.5 py-0.5 rounded bg-white/[0.03] border border-[var(--border-secondary)] text-[var(--text-secondary)] text-[8px] font-mono">{category}</span>
+                              ))}
+                            </div>
+                            {paper.authors?.length ? <div className="mt-2 text-[8px] font-mono text-[var(--text-muted)] line-clamp-1">{paper.authors.slice(0, 4).join(', ')}</div> : null}
                           </div>
                         </div>
                       </a>
