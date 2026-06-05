@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Layers, BarChart3, Newspaper, Search, Share2, Map as MapIcon, X, Globe, MapPinned, Radar, Satellite, Moon, Sun, ExternalLink, AlertTriangle, Building2, RadioTower, Activity, Shield, Database, Wifi, Landmark, Users, CalendarDays } from 'lucide-react';
+import { Layers, BarChart3, Newspaper, Search, Share2, Map as MapIcon, X, Globe, MapPinned, GraduationCap, Satellite, Moon, Sun, ExternalLink, AlertTriangle, Building2, RadioTower, Activity, Shield, Database, Wifi, Landmark, Users, CalendarDays } from 'lucide-react';
 import IntelFeed from '@/components/IntelFeed';
 import MarketsPanel from '@/components/MarketsPanel';
 import SearchBar from '@/components/SearchBar';
@@ -13,13 +13,11 @@ import SharePanel from '@/components/SharePanel';
 import ViewPresets from '@/components/ViewPresets';
 import KeyboardShortcuts from '@/components/KeyboardShortcuts';
 import GlobalStatusBar from '@/components/GlobalStatusBar';
-import LiveAlerts from '@/components/LiveAlerts';
 import { authenticatedFetch } from '@/lib/apiClient';
 
 const OsirisMap = dynamic(() => import('@/components/OsirisMap'), { ssr: false });
 const LayerPanel = dynamic(() => import('@/components/LayerPanel'));
 const CameraViewer = dynamic(() => import('@/components/CameraViewer'));
-const OsintPanel = dynamic(() => import('@/components/OsintPanel'));
 const ResearchExplorer = dynamic(() => import('@/components/ResearchExplorer'));
 
 function useIsMobile() {
@@ -248,8 +246,6 @@ export default function Dashboard() {
   const [mapProjection, setMapProjection] = useState<'globe'|'mercator'>('globe');
   const [mapStyle, setMapStyle] = useState<'dark'|'satellite'>('dark');
   const [siteTheme, setSiteTheme] = useState<'dark'|'light'>('dark');
-  const [sweepData, setSweepData] = useState<any>(null);
-  const [scanTargets, setScanTargets] = useState<any[]>([]);
 
   const isMobile = useIsMobile();
   const startTime = useRef(Date.now());
@@ -850,8 +846,6 @@ export default function Dashboard() {
           onRightClick={handleRightClick} 
           onViewStateChange={setMapView} 
           flyToLocation={flyToLocation}
-          sweepData={sweepData}
-          scanTargets={scanTargets}
           selectedRegionalEvent={selectedRegionalEvent}
         />
       </ErrorBoundary>
@@ -1014,19 +1008,12 @@ export default function Dashboard() {
         {showIntel && <IntelFeed data={data} onLocate={(lat, lng) => setFlyToLocation({ lat, lng, ts: Date.now() })} />}
       </div>
 
-      {/* ── RIGHT HUD (desktop): Search + RECON + Live Alerts ── */}
+      {/* ── RIGHT HUD (desktop): Search + Research Explorer ── */}
       <div className="desktop-panel absolute right-5 top-20 bottom-24 w-80 flex flex-col gap-3 z-[200] pointer-events-auto overflow-y-auto styled-scrollbar pr-1">
         <div className="flex gap-2 items-start">
           <div className="flex-1"><SearchBar onLocate={(lat, lng) => setFlyToLocation({ lat, lng, ts: Date.now() })} /></div>
           <div className="relative"><SharePanel mapView={mapView} activeLayers={activeLayers} mouseCoords={null} /></div>
         </div>
-        <OsintPanel onSweepVisualize={setSweepData} onScanGeolocate={(target, data) => {
-          setScanTargets(prev => {
-            const existing = prev.filter(t => t.id !== target);
-            return [{ id: target, timestamp: Date.now(), ...data }, ...existing].slice(0, 10);
-          });
-          setFlyToLocation({ lat: data.lat, lng: data.lng, ts: Date.now() });
-        }} />
         <ResearchExplorer
           universities={Array.isArray(data.university_research) ? data.university_research : []}
           onLocate={(lat, lng, zoom = 8) => {
@@ -1034,7 +1021,6 @@ export default function Dashboard() {
             setMapView(v => ({ ...v, zoom }));
           }}
         />
-        <LiveAlerts data={data} onLocate={(lat, lng) => setFlyToLocation({ lat, lng, ts: Date.now() })} onWatchFeed={(url, name) => { setLiveFeedUrl(url); setLiveFeedName(name); }} />
       </div>
 
       {/* ── LIVE FEED VIEWER OVERLAY ── */}
@@ -1148,7 +1134,7 @@ export default function Dashboard() {
                 { id: 'layers' as const, icon: Layers, label: 'LAYERS' },
                 { id: 'markets' as const, icon: BarChart3, label: 'MARKETS' },
                 { id: 'intel' as const, icon: Newspaper, label: 'INTEL' },
-                { id: 'recon' as const, icon: Radar, label: 'RECON' },
+                { id: 'recon' as const, icon: GraduationCap, label: 'RESEARCH' },
                 { id: 'search' as const, icon: Search, label: 'SEARCH' },
               ].map(tab => (
                 <button key={tab.id} onClick={() => setMobilePanel(mobilePanel === tab.id ? null : tab.id)}
@@ -1173,7 +1159,7 @@ export default function Dashboard() {
                 <div className="px-3 pb-3">
                   <div className="flex items-center justify-between mb-2">
                     <span className="hud-text text-[9px] text-[var(--text-primary)]">
-                      {mobilePanel === 'layers' ? 'LAYERS & STATS' : mobilePanel === 'markets' ? 'MARKETS & INTEL' : mobilePanel === 'intel' ? 'INTEL FEED' : mobilePanel === 'recon' ? 'AUTONATEAI RECON' : 'SEARCH'}
+                      {mobilePanel === 'layers' ? 'LAYERS & STATS' : mobilePanel === 'markets' ? 'MARKETS & INTEL' : mobilePanel === 'intel' ? 'INTEL FEED' : mobilePanel === 'recon' ? 'RESEARCH EXPLORER' : 'SEARCH'}
                     </span>
                     <button onClick={() => setMobilePanel(null)} className="text-[var(--text-muted)] p-1"><X className="w-4 h-4" /></button>
                   </div>
@@ -1212,7 +1198,6 @@ export default function Dashboard() {
                           setMobilePanel(null);
                         }}
                       />
-                      <OsintPanel isOpen={true} onClose={() => setMobilePanel(null)} isMobile={true} onSweepVisualize={setSweepData} />
                     </div>
                   )}
                 </div>

@@ -7,6 +7,8 @@ import {
   ArrowUpRight,
   BarChart3,
   BookOpen,
+  ChevronDown,
+  ChevronUp,
   Database,
   ExternalLink,
   GraduationCap,
@@ -169,6 +171,8 @@ function ResearchExplorerInner({ universities: mapUniversities = [], onLocate }:
   const [snapshotLoading, setSnapshotLoading] = useState(false);
   const [schoolSort, setSchoolSort] = useState<'score' | 'latest' | 'repos' | 'papers'>('score');
   const [repoSort, setRepoSort] = useState<'latest' | 'momentum' | 'stars' | 'forks'>('latest');
+  const [expandedSections, setExpandedSections] = useState({ repo: true, languages: true, papers: true });
+  const toggleSection = (key: keyof typeof expandedSections) => setExpandedSections((prev) => ({ ...prev, [key]: !prev[key] }));
 
   const loadUniversities = useCallback(async () => {
     setLoading(true);
@@ -497,85 +501,100 @@ function ResearchExplorerInner({ universities: mapUniversities = [], onLocate }:
               <aside className="col-span-12 lg:col-span-3 min-h-0 flex flex-col gap-3 overflow-y-auto styled-scrollbar pr-1">
                 <section className="glass-panel-sm p-4 shrink-0">
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
+                    <button onClick={() => toggleSection('repo')} className="flex items-center gap-2 min-w-0 text-left">
                       <Activity className="w-4 h-4 text-[#A3E635]" />
                       <span className="hud-text text-[11px]">REPO SIGNAL</span>
+                      {expandedSections.repo ? <ChevronUp className="w-3.5 h-3.5 text-[var(--text-muted)]" /> : <ChevronDown className="w-3.5 h-3.5 text-[var(--text-muted)]" />}
+                    </button>
+                    <div className="flex items-center gap-2">
+                      {activeRepo?.html_url && (
+                        <a href={activeRepo.html_url} target="_blank" rel="noopener noreferrer" className="text-[var(--text-muted)] hover:text-[#A3E635]">
+                          <ExternalLink className="w-4 h-4" />
+                        </a>
+                      )}
                     </div>
-                    {activeRepo?.html_url && (
-                      <a href={activeRepo.html_url} target="_blank" rel="noopener noreferrer" className="text-[var(--text-muted)] hover:text-[#A3E635]">
-                        <ExternalLink className="w-4 h-4" />
-                      </a>
-                    )}
                   </div>
-                  <div className="mt-3 text-[12px] font-mono text-[var(--text-primary)] truncate">{activeRepo?.repo_full_name || 'No repo selected'}</div>
-                  <div className="mt-3 grid grid-cols-2 gap-2">
-                    {[
-                      ['STAR DELTA', metricDelta(snapshots, 'stars')],
-                      ['FORK DELTA', metricDelta(snapshots, 'forks')],
-                      ['WATCH DELTA', metricDelta(snapshots, 'watchers')],
-                      ['MOMENTUM DELTA', metricDelta(snapshots, 'momentum_score')],
-                    ].map(([label, value]) => (
-                      <div key={label} className="bg-black/20 rounded-lg border border-[var(--border-secondary)] p-2">
-                        <div className="hud-label">{label}</div>
-                        <div className={`hud-value text-[12px] ${Number(value) >= 0 ? 'text-[#A3E635]' : 'text-[var(--alert-red)]'}`}>{Number(value) >= 0 ? '+' : ''}{fmt(Number(value))}</div>
+                  {expandedSections.repo && (
+                    <>
+                      <div className="mt-3 text-[12px] font-mono text-[var(--text-primary)] truncate">{activeRepo?.repo_full_name || 'No repo selected'}</div>
+                      <div className="mt-3 grid grid-cols-2 gap-2">
+                        {[
+                          ['STAR DELTA', metricDelta(snapshots, 'stars')],
+                          ['FORK DELTA', metricDelta(snapshots, 'forks')],
+                          ['WATCH DELTA', metricDelta(snapshots, 'watchers')],
+                          ['MOMENTUM DELTA', metricDelta(snapshots, 'momentum_score')],
+                        ].map(([label, value]) => (
+                          <div key={label} className="bg-black/20 rounded-lg border border-[var(--border-secondary)] p-2">
+                            <div className="hud-label">{label}</div>
+                            <div className={`hud-value text-[12px] ${Number(value) >= 0 ? 'text-[#A3E635]' : 'text-[var(--alert-red)]'}`}>{Number(value) >= 0 ? '+' : ''}{fmt(Number(value))}</div>
+                          </div>
+                        ))}
                       </div>
-                    ))}
-                  </div>
-                  {snapshotLoading ? <div className="mt-4 text-[10px] font-mono text-[var(--text-muted)]">Loading snapshots...</div> : <SnapshotLineChart snapshots={snapshots} />}
+                      {snapshotLoading ? <div className="mt-4 text-[10px] font-mono text-[var(--text-muted)]">Loading snapshots...</div> : <SnapshotLineChart snapshots={snapshots} />}
+                    </>
+                  )}
                 </section>
 
                 <section className="glass-panel-sm p-4 shrink-0">
-                  <div className="flex items-center gap-2 mb-3">
+                  <button onClick={() => toggleSection('languages')} className={`flex items-center gap-2 w-full text-left ${expandedSections.languages ? 'mb-3' : ''}`}>
                     <BarChart3 className="w-4 h-4 text-[var(--cyan-primary)]" />
                     <span className="hud-text text-[11px]">LANGUAGES</span>
-                  </div>
-                  <div className="space-y-2">
-                    {languageRows.map(([language, count]) => (
-                      <div key={language}>
-                        <div className="flex items-center justify-between text-[9px] font-mono text-[var(--text-secondary)]">
-                          <span>{language}</span>
-                          <span>{count}</span>
+                    {expandedSections.languages ? <ChevronUp className="w-3.5 h-3.5 text-[var(--text-muted)] ml-auto" /> : <ChevronDown className="w-3.5 h-3.5 text-[var(--text-muted)] ml-auto" />}
+                  </button>
+                  {expandedSections.languages && (
+                    <div className="space-y-2">
+                      {languageRows.map(([language, count]) => (
+                        <div key={language}>
+                          <div className="flex items-center justify-between text-[9px] font-mono text-[var(--text-secondary)]">
+                            <span>{language}</span>
+                            <span>{count}</span>
+                          </div>
+                          <div className="mt-1 h-1.5 rounded-full bg-white/5 overflow-hidden">
+                            <div className="h-full bg-[var(--cyan-primary)]" style={{ width: `${count / Math.max(1, languageRows[0]?.[1] || 1) * 100}%` }} />
+                          </div>
                         </div>
-                        <div className="mt-1 h-1.5 rounded-full bg-white/5 overflow-hidden">
-                          <div className="h-full bg-[var(--cyan-primary)]" style={{ width: `${count / Math.max(1, languageRows[0]?.[1] || 1) * 100}%` }} />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+                      ))}
+                    </div>
+                  )}
                 </section>
 
-                <section className="glass-panel-sm h-[320px] shrink-0 flex flex-col">
-                  <div className="px-4 py-3 border-b border-[var(--border-secondary)] flex items-center justify-between">
+                <section className={`glass-panel-sm shrink-0 flex flex-col ${expandedSections.papers ? 'h-[320px]' : ''}`}>
+                  <button onClick={() => toggleSection('papers')} className={`px-4 py-3 flex items-center justify-between text-left ${expandedSections.papers ? 'border-b border-[var(--border-secondary)]' : ''}`}>
                     <div className="flex items-center gap-2">
                       <BookOpen className="w-4 h-4 text-[var(--cyan-primary)]" />
                       <span className="hud-text text-[11px]">ARXIV SIGNALS</span>
                     </div>
-                    <span className="text-[9px] font-mono text-[var(--text-muted)]">{papers.length}</span>
-                  </div>
-                  <div className="flex-1 min-h-0 overflow-y-auto styled-scrollbar p-3">
-                    {!detailLoading && papers.length === 0 && (
-                      <div className="h-full min-h-[180px] flex items-center justify-center text-[11px] font-mono text-[var(--text-muted)] border border-dashed border-[var(--border-secondary)] rounded-lg">
-                        No arXiv-linked papers returned for this university yet.
-                      </div>
-                    )}
-                    {papers.map((paper) => (
-                      <a key={paper.id} href={paper.source_url || paper.pdf_url || '#'} target="_blank" rel="noopener noreferrer" className="block p-3 mb-2 rounded-lg bg-black/20 border border-[var(--border-secondary)] hover:border-[var(--cyan-primary)]/35 hover:bg-white/[0.03] transition-colors">
-                        <div className="flex items-start gap-2">
-                          <ArrowUpRight className="w-3 h-3 text-[var(--cyan-primary)] mt-0.5 shrink-0" />
-                          <div className="min-w-0">
-                            <div className="text-[10px] font-mono text-[var(--text-primary)] leading-snug">{paper.title}</div>
-                            <div className="mt-2 flex flex-wrap gap-1.5">
-                              <span className="px-1.5 py-0.5 rounded bg-[var(--cyan-primary)]/10 border border-[var(--cyan-primary)]/20 text-[var(--cyan-primary)] text-[8px] font-mono">{shortDate(paper.published_at)}</span>
-                              {(paper.categories || []).slice(0, 3).map((category) => (
-                                <span key={category} className="px-1.5 py-0.5 rounded bg-white/[0.03] border border-[var(--border-secondary)] text-[var(--text-secondary)] text-[8px] font-mono">{category}</span>
-                              ))}
-                            </div>
-                            {paper.authors?.length ? <div className="mt-2 text-[8px] font-mono text-[var(--text-muted)] line-clamp-1">{paper.authors.slice(0, 4).join(', ')}</div> : null}
-                          </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[9px] font-mono text-[var(--text-muted)]">{papers.length}</span>
+                      {expandedSections.papers ? <ChevronUp className="w-3.5 h-3.5 text-[var(--text-muted)]" /> : <ChevronDown className="w-3.5 h-3.5 text-[var(--text-muted)]" />}
+                    </div>
+                  </button>
+                  {expandedSections.papers && (
+                    <div className="flex-1 min-h-0 overflow-y-auto styled-scrollbar p-3">
+                      {!detailLoading && papers.length === 0 && (
+                        <div className="h-full min-h-[180px] flex items-center justify-center text-[11px] font-mono text-[var(--text-muted)] border border-dashed border-[var(--border-secondary)] rounded-lg">
+                          No arXiv-linked papers returned for this university yet.
                         </div>
-                      </a>
-                    ))}
-                  </div>
+                      )}
+                      {papers.map((paper) => (
+                        <a key={paper.id} href={paper.source_url || paper.pdf_url || '#'} target="_blank" rel="noopener noreferrer" className="block p-3 mb-2 rounded-lg bg-black/20 border border-[var(--border-secondary)] hover:border-[var(--cyan-primary)]/35 hover:bg-white/[0.03] transition-colors">
+                          <div className="flex items-start gap-2">
+                            <ArrowUpRight className="w-3 h-3 text-[var(--cyan-primary)] mt-0.5 shrink-0" />
+                            <div className="min-w-0">
+                              <div className="text-[10px] font-mono text-[var(--text-primary)] leading-snug">{paper.title}</div>
+                              <div className="mt-2 flex flex-wrap gap-1.5">
+                                <span className="px-1.5 py-0.5 rounded bg-[var(--cyan-primary)]/10 border border-[var(--cyan-primary)]/20 text-[var(--cyan-primary)] text-[8px] font-mono">{shortDate(paper.published_at)}</span>
+                                {(paper.categories || []).slice(0, 3).map((category) => (
+                                  <span key={category} className="px-1.5 py-0.5 rounded bg-white/[0.03] border border-[var(--border-secondary)] text-[var(--text-secondary)] text-[8px] font-mono">{category}</span>
+                                ))}
+                              </div>
+                              {paper.authors?.length ? <div className="mt-2 text-[8px] font-mono text-[var(--text-muted)] line-clamp-1">{paper.authors.slice(0, 4).join(', ')}</div> : null}
+                            </div>
+                          </div>
+                        </a>
+                      ))}
+                    </div>
+                  )}
                 </section>
               </aside>
             </div>
