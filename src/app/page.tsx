@@ -20,6 +20,7 @@ const OsirisMap = dynamic(() => import('@/components/OsirisMap'), { ssr: false }
 const LayerPanel = dynamic(() => import('@/components/LayerPanel'));
 const CameraViewer = dynamic(() => import('@/components/CameraViewer'));
 const OsintPanel = dynamic(() => import('@/components/OsintPanel'));
+const ResearchExplorer = dynamic(() => import('@/components/ResearchExplorer'));
 
 function useIsMobile() {
   const [isMobile, setIsMobile] = useState(false);
@@ -1026,6 +1027,13 @@ export default function Dashboard() {
           });
           setFlyToLocation({ lat: data.lat, lng: data.lng, ts: Date.now() });
         }} />
+        <ResearchExplorer
+          universities={Array.isArray(data.university_research) ? data.university_research : []}
+          onLocate={(lat, lng, zoom = 8) => {
+            setFlyToLocation({ lat, lng, ts: Date.now() });
+            setMapView(v => ({ ...v, zoom }));
+          }}
+        />
         <LiveAlerts data={data} onLocate={(lat, lng) => setFlyToLocation({ lat, lng, ts: Date.now() })} onWatchFeed={(url, name) => { setLiveFeedUrl(url); setLiveFeedName(name); }} />
       </div>
 
@@ -1196,6 +1204,14 @@ export default function Dashboard() {
                   )}
                   {mobilePanel === 'recon' && (
                     <div className="space-y-2">
+                      <ResearchExplorer
+                        universities={Array.isArray(data.university_research) ? data.university_research : []}
+                        onLocate={(lat, lng, zoom = 8) => {
+                          setFlyToLocation({ lat, lng, ts: Date.now() });
+                          setMapView(v => ({ ...v, zoom }));
+                          setMobilePanel(null);
+                        }}
+                      />
                       <OsintPanel isOpen={true} onClose={() => setMobilePanel(null)} isMobile={true} onSweepVisualize={setSweepData} />
                     </div>
                   )}

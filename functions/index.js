@@ -3876,6 +3876,21 @@ app.get('/api/university-research/papers', cache(300000, async (req) => {
   return { papers, total: papers.length, timestamp: new Date().toISOString() };
 }));
 
+app.get('/api/university-research/snapshots', cache(300000, async (req) => {
+  const universityId = String(req.query.university_id || '');
+  const repoId = String(req.query.repo_id || '');
+  const limit = Math.min(Number(req.query.limit || 500), 2000);
+  let query = db.collection('github_repo_snapshots').limit(limit);
+  if (repoId) query = db.collection('github_repo_snapshots').where('repo_id', '==', repoId).limit(limit);
+  else if (universityId) query = db.collection('github_repo_snapshots').where('university_id', '==', universityId).limit(limit);
+  else query = db.collection('github_repo_snapshots').orderBy('snapshot_at', 'desc').limit(limit);
+  const snap = await query.get();
+  const snapshots = snap.docs
+    .map((doc) => doc.data())
+    .sort((a, b) => String(b.snapshot_at || '').localeCompare(String(a.snapshot_at || '')));
+  return { snapshots, total: snapshots.length, timestamp: new Date().toISOString() };
+}));
+
 app.all('/api/university-research/update', async (req, res) => {
   try {
     const limit = Math.min(Number(req.query.limit || req.body?.limit || 100), 100);
