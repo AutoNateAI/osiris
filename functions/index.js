@@ -2857,6 +2857,32 @@ async function fetchFlightRegion(region) {
   }
 }
 
+function extractRouteInfo(raw) {
+  const route = typeof raw.route === 'string' ? raw.route.trim().toUpperCase() : '';
+  const routeParts = route.split(/[-\s>]+/).filter(Boolean);
+  const departure = String(
+    raw.origin ||
+    raw.departure ||
+    raw.from ||
+    raw.nav_origin ||
+    (raw.route && raw.route.origin) ||
+    (raw.route && raw.route.from) ||
+    routeParts[0] ||
+    ''
+  ).trim().toUpperCase();
+  const destination = String(
+    raw.destination ||
+    raw.dest ||
+    raw.to ||
+    raw.nav_destination ||
+    (raw.route && raw.route.destination) ||
+    (raw.route && raw.route.to) ||
+    (routeParts.length > 1 ? routeParts[routeParts.length - 1] : '') ||
+    ''
+  ).trim().toUpperCase();
+  return { departure, destination, route };
+}
+
 function classifyFlight(raw) {
   const modelUpper = (raw.t || '').toUpperCase();
   const flightStr = (raw.flight || '').trim().toUpperCase();
@@ -2866,6 +2892,7 @@ function classifyFlight(raw) {
   const altMeters = typeof altRaw === 'number' ? altRaw * 0.3048 : 0;
   const airlineCode = airlineCodeRe.exec(callsign)?.[1] || '';
   const isHeli = heliTypes.has(modelUpper);
+  const routeInfo = extractRouteInfo(raw);
   let category = 'commercial';
   if ((raw.dbFlags || 0) & 1 || militaryIndicators.has(modelUpper) || /^(RCH|KING|DUKE|EVAC|JAKE|REACH|CONVOY)\d/i.test(raw.flight || '')) category = 'military';
   else if (privateJetTypes.has(modelUpper)) category = 'jet';
@@ -2880,6 +2907,9 @@ function classifyFlight(raw) {
     model: raw.t || 'Unknown',
     icao24: raw.hex || '',
     registration: raw.r || 'N/A',
+    departure: routeInfo.departure,
+    destination: routeInfo.destination,
+    route: routeInfo.route,
     squawk: raw.squawk || '',
     airline_code: airlineCode,
     aircraft_category: isHeli ? 'heli' : 'plane',

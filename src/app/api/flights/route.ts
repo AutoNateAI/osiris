@@ -70,6 +70,33 @@ async function fetchRegion(region: typeof REGIONS[0]): Promise<any[]> {
   return [];
 }
 
+function extractRouteInfo(f: any) {
+  const route = typeof f.route === 'string' ? f.route.trim().toUpperCase() : '';
+  const routeParts = route.split(/[-\s>]+/).filter(Boolean);
+  const departure = (
+    f.origin ||
+    f.departure ||
+    f.from ||
+    f.nav_origin ||
+    f.route?.origin ||
+    f.route?.from ||
+    routeParts[0] ||
+    ''
+  ).toString().trim().toUpperCase();
+  const destination = (
+    f.destination ||
+    f.dest ||
+    f.to ||
+    f.nav_destination ||
+    f.route?.destination ||
+    f.route?.to ||
+    (routeParts.length > 1 ? routeParts[routeParts.length - 1] : '') ||
+    ''
+  ).toString().trim().toUpperCase();
+
+  return { departure, destination, route };
+}
+
 function classifyFlight(f: any) {
   const modelUpper = (f.t || '').toUpperCase();
   const flightStr = (f.flight || '').trim().toUpperCase();
@@ -89,6 +116,7 @@ function classifyFlight(f: any) {
   const heading = f.track || 0;
   const isHeli = HELI_TYPES.has(modelUpper);
   const isGrounded = typeof altRaw === 'number' && altRaw < 100;
+  const routeInfo = extractRouteInfo(f);
 
   // Extract airline code
   const airlineMatch = AIRLINE_CODE_RE.exec(callsign);
@@ -114,6 +142,9 @@ function classifyFlight(f: any) {
     model: f.t || 'Unknown',
     icao24: f.hex || '',
     registration: f.r || 'N/A',
+    departure: routeInfo.departure,
+    destination: routeInfo.destination,
+    route: routeInfo.route,
     squawk: f.squawk || '',
     airline_code: airlineCode,
     aircraft_category: isHeli ? 'heli' : 'plane',
