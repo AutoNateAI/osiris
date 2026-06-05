@@ -706,8 +706,8 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
             <div><span style="color:#5C5A54;font-size:9px;">HDG</span><br/><span style="color:#E8E6E0;">${Math.round(p.heading||0)}°</span></div>
             <div><span style="color:#5C5A54;font-size:9px;">REG</span><br/><span style="color:#E8E6E0;">${p.registration||'—'}</span></div>
             <div><span style="color:#5C5A54;font-size:9px;">POS</span><br/><span style="color:#E8E6E0;">${coords[1].toFixed(2)},${coords[0].toFixed(2)}</span></div>
-            <div><span style="color:#5C5A54;font-size:9px;">DEP</span><br/><span style="color:#E8E6E0;">${p.departure||'UNKNOWN'}</span></div>
-            <div><span style="color:#5C5A54;font-size:9px;">DEST</span><br/><span style="color:#E8E6E0;">${p.destination||'UNKNOWN'}</span></div>
+            <div><span style="color:#5C5A54;font-size:9px;">DEP</span><br/><span style="color:#E8E6E0;">${p.departure_name||p.departure||'UNKNOWN'}</span></div>
+            <div><span style="color:#5C5A54;font-size:9px;">DEST</span><br/><span style="color:#E8E6E0;">${p.destination_name||p.destination||'UNKNOWN'}</span></div>
             <div><span style="color:#5C5A54;font-size:9px;">ROUTE</span><br/><span style="color:#E8E6E0;">${p.route||'—'}</span></div>
           </div>
           <div style="margin-top:12px;display:flex;gap:6px;flex-wrap:wrap;">
@@ -1154,7 +1154,7 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
     if (!mapReady) return;
     const toFeatures = (arr: any[]) => (arr || []).map((f: any) => ({
       type: 'Feature' as const, geometry: { type: 'Point' as const, coordinates: [f.lng, f.lat] },
-      properties: { callsign: f.callsign, heading: f.heading || 0, alt: f.alt, model: f.model, speed_knots: f.speed_knots, registration: f.registration, icao24: f.icao24, departure: f.departure, destination: f.destination, route: f.route },
+      properties: { callsign: f.callsign, heading: f.heading || 0, alt: f.alt, model: f.model, speed_knots: f.speed_knots, registration: f.registration, icao24: f.icao24, departure: f.departure, destination: f.destination, departure_name: f.departure_name, destination_name: f.destination_name, route: f.route, route_source: f.route_source },
     }));
     setGeo('flights', activeLayers.flights ? toFeatures(data.commercial_flights) : []);
     setGeo('private-fl', activeLayers.private ? toFeatures(data.private_flights) : []);

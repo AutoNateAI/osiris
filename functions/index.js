@@ -2857,6 +2857,71 @@ async function fetchFlightRegion(region) {
   }
 }
 
+const flightRouteCache = new Map();
+const FLIGHT_ROUTE_CACHE_TTL = 6 * 60 * 60 * 1000;
+const FLIGHT_ROUTE_ENRICH_LIMIT = 300;
+
+function airportLabel(airport) {
+  if (!airport) return '';
+  const code = airport.iata_code || airport.icao_code || '';
+  const city = airport.municipality || '';
+  return [code, city].filter(Boolean).join(' ');
+}
+
+async function fetchFlightRoute(callsign) {
+  const key = String(callsign || '').trim().toUpperCase();
+  if (!/^[A-Z]{3}\d+[A-Z]?$/.test(key)) return null;
+
+  const cached = flightRouteCache.get(key);
+  if (cached && Date.now() - cached.time < FLIGHT_ROUTE_CACHE_TTL) return cached.route;
+
+  try {
+    const data = await fetchJson(`https://api.adsbdb.com/v0/callsign/${encodeURIComponent(key)}`, {
+      signal: AbortSignal.timeout(2500),
+      headers: { Accept: 'application/json' },
+    });
+    const route = data?.response?.flightroute;
+    const origin = route?.origin;
+    const destination = route?.destination;
+    if (!origin || !destination) {
+      flightRouteCache.set(key, { time: Date.now(), route: null });
+      return null;
+    }
+    const enriched = {
+      departure: origin.iata_code || origin.icao_code || '',
+      destination: destination.iata_code || destination.icao_code || '',
+      departure_name: airportLabel(origin),
+      destination_name: airportLabel(destination),
+      departure_lat: origin.latitude,
+      departure_lng: origin.longitude,
+      destination_lat: destination.latitude,
+      destination_lng: destination.longitude,
+      route: `${origin.iata_code || origin.icao_code || ''}-${destination.iata_code || destination.icao_code || ''}`,
+      route_source: 'adsbdb',
+    };
+    flightRouteCache.set(key, { time: Date.now(), route: enriched });
+    return enriched;
+  } catch {
+    flightRouteCache.set(key, { time: Date.now(), route: null });
+    return null;
+  }
+}
+
+async function enrichCommercialFlightRoutes(flights) {
+  const candidates = flights
+    .filter((flight) => flight.airline_code && flight.callsign && (!flight.departure || !flight.destination))
+    .slice(0, FLIGHT_ROUTE_ENRICH_LIMIT);
+
+  const chunkSize = 25;
+  for (let i = 0; i < candidates.length; i += chunkSize) {
+    const chunk = candidates.slice(i, i + chunkSize);
+    await Promise.all(chunk.map(async (flight) => {
+      const route = await fetchFlightRoute(flight.callsign);
+      if (route) Object.assign(flight, route);
+    }));
+  }
+}
+
 function extractRouteInfo(raw) {
   const route = typeof raw.route === 'string' ? raw.route.trim().toUpperCase() : '';
   const routeParts = route.split(/[-\s>]+/).filter(Boolean);
@@ -3488,6 +3553,8 @@ app.get('/api/flights', cache(45000, async () => {
     else if (flight.category === 'private') privateFlights.push(flight);
     else commercial.push(flight);
   }
+
+  await enrichCommercialFlightRoutes(commercial);
 
   return {
     commercial_flights: commercial,

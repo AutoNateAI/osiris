@@ -53,6 +53,9 @@ const MILITARY_INDICATORS = new Set([
 ]);
 
 const AIRLINE_CODE_RE = /^([A-Z]{3})\d/;
+const ROUTE_CACHE_TTL = 6 * 60 * 60 * 1000;
+const ROUTE_ENRICH_LIMIT = 300;
+const routeCache = new Map<string, { time: number; route: any | null }>();
 
 async function fetchRegion(region: typeof REGIONS[0]): Promise<any[]> {
   try {
@@ -68,6 +71,69 @@ async function fetchRegion(region: typeof REGIONS[0]): Promise<any[]> {
     console.warn(`Region fetch failed for lat=${region.lat}:`, e);
   }
   return [];
+}
+
+function airportLabel(airport: any) {
+  if (!airport) return '';
+  const code = airport.iata_code || airport.icao_code || '';
+  const city = airport.municipality || '';
+  return [code, city].filter(Boolean).join(' ');
+}
+
+async function fetchFlightRoute(callsign: string) {
+  const key = String(callsign || '').trim().toUpperCase();
+  if (!/^[A-Z]{3}\d+[A-Z]?$/.test(key)) return null;
+
+  const cached = routeCache.get(key);
+  if (cached && Date.now() - cached.time < ROUTE_CACHE_TTL) return cached.route;
+
+  try {
+    const res = await stealthFetch(`https://api.adsbdb.com/v0/callsign/${encodeURIComponent(key)}`, {
+      signal: AbortSignal.timeout(2500),
+      headers: { Accept: 'application/json' },
+    });
+    if (!res.ok) throw new Error(`adsbdb returned ${res.status}`);
+    const data = await res.json();
+    const route = data?.response?.flightroute;
+    const origin = route?.origin;
+    const destination = route?.destination;
+    if (!origin || !destination) {
+      routeCache.set(key, { time: Date.now(), route: null });
+      return null;
+    }
+    const enriched = {
+      departure: origin.iata_code || origin.icao_code || '',
+      destination: destination.iata_code || destination.icao_code || '',
+      departure_name: airportLabel(origin),
+      destination_name: airportLabel(destination),
+      departure_lat: origin.latitude,
+      departure_lng: origin.longitude,
+      destination_lat: destination.latitude,
+      destination_lng: destination.longitude,
+      route: `${origin.iata_code || origin.icao_code || ''}-${destination.iata_code || destination.icao_code || ''}`,
+      route_source: 'adsbdb',
+    };
+    routeCache.set(key, { time: Date.now(), route: enriched });
+    return enriched;
+  } catch {
+    routeCache.set(key, { time: Date.now(), route: null });
+    return null;
+  }
+}
+
+async function enrichCommercialRoutes(flights: any[]) {
+  const candidates = flights
+    .filter((flight) => flight.airline_code && flight.callsign && (!flight.departure || !flight.destination))
+    .slice(0, ROUTE_ENRICH_LIMIT);
+
+  const chunkSize = 25;
+  for (let i = 0; i < candidates.length; i += chunkSize) {
+    const chunk = candidates.slice(i, i + chunkSize);
+    await Promise.all(chunk.map(async (flight) => {
+      const route = await fetchFlightRoute(flight.callsign);
+      if (route) Object.assign(flight, route);
+    }));
+  }
 }
 
 function extractRouteInfo(f: any) {
@@ -244,6 +310,7 @@ export async function GET() {
 
     // Aggregate GPS jamming zones (grid-based)
     const jammingZones = aggregateJamming(gpsJamming, JAMMING_NACAP_THRESHOLD);
+    await enrichCommercialRoutes(commercial);
 
     return {
       commercial_flights: commercial,

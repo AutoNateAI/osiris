@@ -211,8 +211,9 @@ function itemMeta(item: any, sectionKey: string) {
     return [
       item.alt ? `${Math.round(Number(item.alt)).toLocaleString()}m` : '',
       item.speed_knots ? `${item.speed_knots} kt` : '',
-      item.departure ? `DEP ${item.departure}` : 'DEP unknown',
-      item.destination ? `DEST ${item.destination}` : 'DEST unknown',
+      item.departure_name || item.departure ? `DEP ${item.departure_name || item.departure}` : 'DEP unknown',
+      item.destination_name || item.destination ? `DEST ${item.destination_name || item.destination}` : 'DEST unknown',
+      item.route_source ? `SRC ${item.route_source}` : '',
     ].filter(Boolean);
   }
   if (sectionKey === 'events') return [item.date, item.time, item.venue].map(clean).filter(Boolean);
@@ -514,8 +515,8 @@ function RegionExplorerInner({
                 </section>
               </main>
 
-              <aside className="col-span-12 lg:col-span-3 min-h-0 flex flex-col gap-3">
-                <section className="glass-panel-sm flex-1 min-h-0 flex flex-col">
+              <aside className="col-span-12 lg:col-span-3 min-h-0 flex flex-col gap-3 overflow-y-auto styled-scrollbar pr-1">
+                <section className={`glass-panel-sm shrink-0 flex flex-col ${expanded.layers ? 'max-h-[650px]' : ''}`}>
                   <button
                     onClick={() => setExpanded((prev) => ({ ...prev, layers: !prev.layers }))}
                     className="px-4 py-3 border-b border-[var(--border-secondary)] flex items-center justify-between text-left"
@@ -527,7 +528,7 @@ function RegionExplorerInner({
                     {expanded.layers ? <ChevronUp className="w-4 h-4 text-[var(--text-muted)]" /> : <ChevronDown className="w-4 h-4 text-[var(--text-muted)]" />}
                   </button>
                   {expanded.layers && (
-                    <div className="flex-1 min-h-0 overflow-y-auto styled-scrollbar p-4 space-y-3">
+                    <div className="min-h-0 overflow-y-auto styled-scrollbar p-4 space-y-3">
                       <div className="grid grid-cols-2 gap-2">
                         <button onClick={() => setRegionLayers(selected, true)} className="px-3 py-2 rounded-lg border border-[var(--alert-green)]/30 text-[var(--alert-green)] text-[10px] font-mono hover:bg-[var(--alert-green)]/10 transition-colors">ENABLE REGION</button>
                         <button onClick={() => setRegionLayers(selected, false)} className="px-3 py-2 rounded-lg border border-[var(--alert-red)]/30 text-[var(--alert-red)] text-[10px] font-mono hover:bg-[var(--alert-red)]/10 transition-colors">DISABLE REGION</button>
