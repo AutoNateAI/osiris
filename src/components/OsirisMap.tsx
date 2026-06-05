@@ -16,6 +16,7 @@ interface OsirisMapProps {
   mapStyle?: string;
   sweepData?: any;
   scanTargets?: any[];
+  selectedRegionalEvent?: any;
 }
 
 function computeSolarTerminator(): [number, number][] {
@@ -42,8 +43,10 @@ const EMPTY_FC = { type: 'FeatureCollection' as const, features: [] };
 const COUNTRY_GEOJSON_URL = 'https://raw.githubusercontent.com/datasets/geo-countries/master/data/countries.geojson';
 const US_STATES_GEOJSON_URL = 'https://raw.githubusercontent.com/PublicaMundi/MappingAPI/master/data/geojson/us-states.json';
 const BASE_CHOROPLETH_LAYERS = ['country-color-fill', 'country-color-outline', 'us-state-color-fill', 'us-state-color-outline'];
+const REGIONAL_POPUP_STYLE = `background:rgba(12,14,26,0.95);backdrop-filter:blur(16px);border-radius:10px;padding:16px;font-family:'JetBrains Mono',monospace;`;
+const REGIONAL_LINK_STYLE = `display:inline-block;margin-top:8px;padding:5px 12px;font-size:10px;letter-spacing:0.12em;text-decoration:none;border-radius:5px;font-family:'JetBrains Mono',monospace;`;
 
-function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightClick, onViewStateChange, flyToLocation, projection = 'globe', mapStyle = 'dark', sweepData, scanTargets = [] }: OsirisMapProps) {
+function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightClick, onViewStateChange, flyToLocation, projection = 'globe', mapStyle = 'dark', sweepData, scanTargets = [], selectedRegionalEvent }: OsirisMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const popupRef = useRef<maplibregl.Popup | null>(null);
@@ -72,6 +75,28 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
     ctx.closePath();
     ctx.fill();
     map.addImage(id, { width: size, height: size, data: new Uint8Array(ctx.getImageData(0, 0, size, size).data) });
+  }, []);
+
+  const showRegionalEventPopup = useCallback((event: any, coords: [number, number], color: string, label: string) => {
+    const map = mapRef.current;
+    if (!map || !event) return;
+    const when = event.startDate ? new Date(event.startDate) : null;
+    const dateText = when && !Number.isNaN(when.getTime()) ? when.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }) : (event.date_label || 'Date TBD');
+    const timeText = when && !Number.isNaN(when.getTime()) ? when.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) : (event.time_label || '');
+    popupRef.current?.remove();
+    popupRef.current = new maplibregl.Popup({ closeButton: true, maxWidth: '420px', offset: 14 })
+      .setLngLat(coords)
+      .setHTML(`<div style="${REGIONAL_POPUP_STYLE}border:1px solid ${color}59;">
+        <div style="color:${color};font-size:10px;letter-spacing:0.14em;margin-bottom:4px;">${label}</div>
+        <div style="color:#E8E6E0;font-size:13px;font-weight:700;margin-bottom:5px;">${event.title || 'Regional Event'}</div>
+        <div style="display:grid;grid-template-columns:70px 1fr;gap:4px;font-size:10px;margin-bottom:8px;">
+          <span style="color:#5C5A54;">WHEN</span><span style="color:${color};">${dateText} ${timeText}</span>
+          <span style="color:#5C5A54;">WHERE</span><span style="color:#E8E6E0;">${event.location || 'Location TBD'}</span>
+        </div>
+        ${event.description ? `<div style="font-size:9px;color:#aaa;line-height:1.4;">${String(event.description).slice(0, 220)}</div>` : ''}
+        ${event.source_url ? `<a href="${event.source_url}" target="_blank" style="${REGIONAL_LINK_STYLE}color:${color};border:1px solid ${color}66;background:${color}1A;">EVENT DETAILS</a>` : ''}
+      </div>`)
+      .addTo(map);
   }, []);
 
   const createDot = useCallback((map: maplibregl.Map, id: string, color: string, size: number) => {
@@ -1007,18 +1032,7 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
       const p = e.features?.[0]?.properties as any;
       if (!p) return;
       const coords = (e.features![0].geometry as any).coordinates;
-      const when = p.startDate ? new Date(p.startDate) : null;
-      const dateText = when && !Number.isNaN(when.getTime()) ? when.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }) : (p.date_label || 'Date TBD');
-      const timeText = when && !Number.isNaN(when.getTime()) ? when.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) : (p.time_label || '');
-      popup(coords, `<div style="${pStyle}border:1px solid rgba(255,176,32,0.35);">
-        <div style="color:#FFE1A3;font-size:13px;font-weight:700;margin-bottom:5px;">${p.title || 'Sikeston Event'}</div>
-        <div style="display:grid;grid-template-columns:70px 1fr;gap:4px;font-size:10px;margin-bottom:8px;">
-          <span style="color:#5C5A54;">WHEN</span><span style="color:#FFB020;">${dateText} ${timeText}</span>
-          <span style="color:#5C5A54;">WHERE</span><span style="color:#E8E6E0;">${p.location || 'Location TBD'}</span>
-        </div>
-        ${p.description ? `<div style="font-size:9px;color:#aaa;line-height:1.4;">${String(p.description).slice(0, 220)}</div>` : ''}
-        <a href="${p.source_url}" target="_blank" style="${linkStyle}color:#FFB020;border:1px solid rgba(255,176,32,0.4);background:rgba(255,176,32,0.1);">EVENT DETAILS</a>
-      </div>`);
+      showRegionalEventPopup(p, coords, '#FFB020', 'SIKESTON EVENT');
     });
 
     map.on('click', 'power-dots', e => {
@@ -1050,18 +1064,7 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
       const p = e.features?.[0]?.properties as any;
       if (!p) return;
       const coords = (e.features![0].geometry as any).coordinates;
-      const when = p.startDate ? new Date(p.startDate) : null;
-      const dateText = when && !Number.isNaN(when.getTime()) ? when.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }) : (p.date_label || 'Date TBD');
-      const timeText = when && !Number.isNaN(when.getTime()) ? when.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) : (p.time_label || '');
-      popup(coords, `<div style="${pStyle}border:1px solid rgba(79,179,255,0.35);">
-        <div style="color:#BFE4FF;font-size:13px;font-weight:700;margin-bottom:5px;">${p.title || 'Hopewell Event'}</div>
-        <div style="display:grid;grid-template-columns:70px 1fr;gap:4px;font-size:10px;margin-bottom:8px;">
-          <span style="color:#5C5A54;">WHEN</span><span style="color:#4FB3FF;">${dateText} ${timeText}</span>
-          <span style="color:#5C5A54;">WHERE</span><span style="color:#E8E6E0;">${p.location || 'Location TBD'}</span>
-        </div>
-        ${p.description ? `<div style="font-size:9px;color:#aaa;line-height:1.4;">${String(p.description).slice(0, 220)}</div>` : ''}
-        <a href="${p.source_url}" target="_blank" style="${linkStyle}color:#4FB3FF;border:1px solid rgba(79,179,255,0.4);background:rgba(79,179,255,0.1);">EVENT DETAILS</a>
-      </div>`);
+      showRegionalEventPopup(p, coords, '#4FB3FF', 'HOPEWELL EVENT');
     });
 
     ['hud-pha-bubbles', 'sbir-recipient-dots', 'education-org-dots', 'workforce-org-dots', 'health-org-dots', 'funded-faith-org-dots', 'sikeston-business-dots', 'sikeston-event-dots', 'hopewell-business-dots', 'hopewell-event-dots', 'power-dots'].forEach(layer => {
@@ -1550,6 +1553,18 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
     if (!mapReady || !mapRef.current || !flyToLocation) return;
     mapRef.current.flyTo({ center: [flyToLocation.lng, flyToLocation.lat], zoom: 8, duration: 2000 });
   }, [mapReady, flyToLocation]);
+
+  useEffect(() => {
+    if (!mapReady || !mapRef.current || !selectedRegionalEvent) return;
+    const lat = Number(selectedRegionalEvent.lat);
+    const lng = Number(selectedRegionalEvent.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+    const map = mapRef.current;
+    const color = selectedRegionalEvent.type === 'hopewell_event' ? '#4FB3FF' : '#FFB020';
+    const label = selectedRegionalEvent.type === 'hopewell_event' ? 'HOPEWELL EVENT' : 'SIKESTON EVENT';
+    map.flyTo({ center: [lng, lat], zoom: 13.5, duration: 1200 });
+    map.once('moveend', () => showRegionalEventPopup(selectedRegionalEvent, [lng, lat], color, label));
+  }, [mapReady, selectedRegionalEvent, showRegionalEventPopup]);
 
   // Dynamic projection switching (lightweight — no terrain DEM)
   useEffect(() => {

@@ -181,7 +181,7 @@ function EntityDetailModal({ entity, onClose }: { entity: any; onClose: () => vo
   );
 }
 
-function RegionalEventsPanel({ events, title, color }: { events: any[]; title: string; color: string }) {
+function RegionalEventsPanel({ events, title, color, onSelect }: { events: any[]; title: string; color: string; onSelect: (event: any) => void }) {
   const upcoming = (Array.isArray(events) ? events : [])
     .filter((event) => event?.startDate)
     .slice()
@@ -203,7 +203,7 @@ function RegionalEventsPanel({ events, title, color }: { events: any[]; title: s
           const dateText = Number.isNaN(when.getTime()) ? event.date_label : when.toLocaleDateString(undefined, { month: 'short', day: 'numeric', weekday: 'short' });
           const timeText = Number.isNaN(when.getTime()) ? event.time_label : when.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
           return (
-            <a key={event.id || event.source_url} href={event.source_url} target="_blank" rel="noreferrer" className="block rounded border border-[var(--border-secondary)]/70 bg-black/20 p-2 transition-colors" style={{ borderColor: undefined }} onMouseEnter={(e) => { e.currentTarget.style.borderColor = `${color}80`; }} onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--border-secondary)'; }}>
+            <button key={event.id || event.source_url} type="button" onClick={() => onSelect(event)} className="block w-full text-left rounded border border-[var(--border-secondary)]/70 bg-black/20 p-2 transition-colors" style={{ borderColor: undefined }} onMouseEnter={(e) => { e.currentTarget.style.borderColor = `${color}80`; }} onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--border-secondary)'; }}>
               <div className="text-[11px] font-mono font-bold text-[var(--text-primary)] leading-snug">{event.title}</div>
               <div className="mt-1 grid grid-cols-[70px_1fr] gap-2 text-[9px] font-mono">
                 <span style={{ color }}>{dateText}</span>
@@ -211,7 +211,7 @@ function RegionalEventsPanel({ events, title, color }: { events: any[]; title: s
                 <span className="text-[var(--text-muted)]">WHERE</span>
                 <span className="text-[var(--text-secondary)] truncate">{event.location || 'Location TBD'}</span>
               </div>
-            </a>
+            </button>
           );
         })}
       </div>
@@ -228,6 +228,7 @@ export default function Dashboard() {
   const [mapView, setMapView] = useState({ zoom: 2.5, latitude: 20 });
   const [sbirYearRange, setSbirYearRange] = useState({ start: 2025, end: 2030 });
   const [flyToLocation, setFlyToLocation] = useState<{ lat: number; lng: number; ts: number } | null>(null);
+  const [selectedRegionalEvent, setSelectedRegionalEvent] = useState<any>(null);
   const [globalStats, setGlobalStats] = useState<any>(null);
   const mouseCoordsRef = useRef<{ lat: number; lng: number } | null>(null);
   const coordsDisplayRef = useRef<HTMLDivElement>(null);
@@ -433,6 +434,13 @@ export default function Dashboard() {
       setLiveFeedName(entity.name);
       setLiveFeedEmbedAllowed(entity.embed_allowed !== false);
     }
+  }, []);
+
+  const handleRegionalEventSelect = useCallback((event: any) => {
+    const lat = Number(event?.lat);
+    const lng = Number(event?.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+    setSelectedRegionalEvent({ ...event, selected_ts: Date.now() });
   }, []);
 
   // ── SHARED FETCH UTILITY (Fixes #107 — single definition, not 3 copies) ──
@@ -838,18 +846,19 @@ export default function Dashboard() {
           flyToLocation={flyToLocation}
           sweepData={sweepData}
           scanTargets={scanTargets}
+          selectedRegionalEvent={selectedRegionalEvent}
         />
       </ErrorBoundary>
 
       {activeLayers.sikeston_events && (
         <div className="absolute top-[88px] right-3 z-[210] pointer-events-none hidden xl:block">
-          <RegionalEventsPanel events={data.sikeston_events || []} title="SIKESTON EVENTS" color="#FFB020" />
+          <RegionalEventsPanel events={data.sikeston_events || []} title="SIKESTON EVENTS" color="#FFB020" onSelect={handleRegionalEventSelect} />
         </div>
       )}
 
       {activeLayers.hopewell_events && (
         <div className="absolute top-[88px] right-3 z-[210] pointer-events-none hidden xl:block" style={{ transform: activeLayers.sikeston_events ? 'translateY(392px)' : undefined }}>
-          <RegionalEventsPanel events={data.hopewell_events || []} title="HOPEWELL EVENTS" color="#4FB3FF" />
+          <RegionalEventsPanel events={data.hopewell_events || []} title="HOPEWELL EVENTS" color="#4FB3FF" onSelect={handleRegionalEventSelect} />
         </div>
       )}
 
