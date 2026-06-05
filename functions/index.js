@@ -7,6 +7,7 @@ import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { onRequest } from 'firebase-functions/v2/https';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import YAML from 'yaml';
+import { researchUniversities } from './research-universities.js';
 
 initializeApp();
 const db = getFirestore();
@@ -66,6 +67,10 @@ async function fetchText(url, init = {}) {
 
 function md5(input) {
   return crypto.createHash('md5').update(input).digest('hex');
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function stripHtml(input = '') {
@@ -463,6 +468,303 @@ async function fetchHopewellEvents({ geocode = false, limit = 250 } = {}) {
     } catch {}
   }
   return events.sort((a, b) => String(a.startDate).localeCompare(String(b.startDate)));
+}
+
+const GITHUB_API_BASE = 'https://api.github.com';
+const ARXIV_API_BASE = 'https://export.arxiv.org/api/query';
+
+function githubHeaders() {
+  const headers = {
+    Accept: 'application/vnd.github+json',
+    'User-Agent': 'AutoNateAI-OSIRIS/1.0 university research scanner',
+    'X-GitHub-Api-Version': '2022-11-28',
+  };
+  if (process.env.GITHUB_TOKEN) headers.Authorization = `Bearer ${process.env.GITHUB_TOKEN}`;
+  return headers;
+}
+
+async function fetchGithubJson(path) {
+  return fetchJson(`${GITHUB_API_BASE}${path}`, {
+    headers: githubHeaders(),
+    signal: AbortSignal.timeout(20000),
+  });
+}
+
+function parseXmlTag(xml = '', tag) {
+  const match = String(xml).match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'i'));
+  return decodeEntity((match?.[1] || '').replace(/<!\[CDATA\[|\]\]>/g, ''));
+}
+
+function parseArxivEntries(xml = '') {
+  return String(xml).split(/<entry>/i).slice(1).map((entry) => {
+    const id = parseXmlTag(entry, 'id');
+    const arxivId = id.split('/abs/')[1] || id.split('/').pop() || md5(id);
+    const authors = [...entry.matchAll(/<author>[\s\S]*?<name>([\s\S]*?)<\/name>[\s\S]*?<\/author>/gi)].map((m) => decodeEntity(m[1]));
+    const categories = [...entry.matchAll(/<category[^>]*term="([^"]+)"/gi)].map((m) => decodeEntity(m[1]));
+    return {
+      id: `arxiv-${arxivId.replace(/[^a-zA-Z0-9._-]/g, '-')}`,
+      arxiv_id: arxivId,
+      title: parseXmlTag(entry, 'title'),
+      abstract: parseXmlTag(entry, 'summary'),
+      authors,
+      categories,
+      primary_category: categories[0] || '',
+      published_at: parseXmlTag(entry, 'published'),
+      updated_at: parseXmlTag(entry, 'updated'),
+      pdf_url: id ? id.replace('/abs/', '/pdf/') : '',
+      source_url: id,
+    };
+  }).filter((paper) => paper.title);
+}
+
+async function fetchArxivPapersForUniversity(university, limit = 5) {
+  const query = new URLSearchParams({
+    search_query: `all:"${university.name}" OR all:"${university.short_name}"`,
+    start: '0',
+    max_results: String(limit),
+    sortBy: 'submittedDate',
+    sortOrder: 'descending',
+  });
+  const xml = await fetchText(`${ARXIV_API_BASE}?${query.toString()}`, {
+    headers: { 'User-Agent': 'AutoNateAI-OSIRIS/1.0 university research scanner' },
+    signal: AbortSignal.timeout(20000),
+  });
+  return parseArxivEntries(xml).map((paper) => ({
+    ...paper,
+    university_id: university.id,
+    university_name: university.name,
+    lat: university.lat,
+    lng: university.lng,
+    last_seen: new Date().toISOString(),
+  }));
+}
+
+async function fetchRecentArxivCorpus(limit = 300) {
+  const query = new URLSearchParams({
+    search_query: 'cat:cs.* OR cat:eess.* OR cat:stat.ML OR cat:math.OC',
+    start: '0',
+    max_results: String(Math.min(Math.max(limit, 25), 1000)),
+    sortBy: 'submittedDate',
+    sortOrder: 'descending',
+  });
+  const xml = await fetchText(`${ARXIV_API_BASE}?${query.toString()}`, {
+    headers: { 'User-Agent': 'AutoNateAI-OSIRIS/1.0 university research scanner' },
+    signal: AbortSignal.timeout(30000),
+  });
+  return parseArxivEntries(xml);
+}
+
+function matchArxivPapersForUniversity(corpus, university, limit = 5) {
+  const needles = [university.name, university.short_name, ...(university.aliases || [])]
+    .map((value) => String(value || '').toLowerCase())
+    .filter((value) => value.length > 2);
+  return corpus
+    .filter((paper) => {
+      const haystack = `${paper.title} ${paper.abstract} ${(paper.authors || []).join(' ')}`.toLowerCase();
+      return needles.some((needle) => haystack.includes(needle));
+    })
+    .slice(0, limit)
+    .map((paper) => ({
+      ...paper,
+      university_id: university.id,
+      university_name: university.name,
+      lat: university.lat,
+      lng: university.lng,
+      last_seen: new Date().toISOString(),
+    }));
+}
+
+function repoMomentumScore(repo, previousSnapshot) {
+  const stars = Number(repo.stargazers_count || 0);
+  const forks = Number(repo.forks_count || 0);
+  const issues = Number(repo.open_issues_count || 0);
+  const pushedAt = repo.pushed_at ? Date.parse(repo.pushed_at) : 0;
+  const daysSincePush = pushedAt ? Math.max(0, (Date.now() - pushedAt) / 86400000) : 365;
+  const starDelta = previousSnapshot ? stars - Number(previousSnapshot.stars || 0) : 0;
+  const forkDelta = previousSnapshot ? forks - Number(previousSnapshot.forks || 0) : 0;
+  return Math.round(Math.min(100, (stars ** 0.45) * 5 + (forks ** 0.5) * 4 + Math.max(0, starDelta) * 6 + Math.max(0, forkDelta) * 8 + Math.max(0, 30 - daysSincePush) + Math.min(10, issues)));
+}
+
+async function scanUniversityGithub(university, options = {}) {
+  const now = new Date().toISOString();
+  const repoLimit = Math.max(1, Math.min(Number(options.repoLimit || 5), 20));
+  const repos = [];
+  const snapshots = [];
+  const orgs = [];
+
+  for (const orgName of university.github_orgs || []) {
+    try {
+      const org = await fetchGithubJson(`/orgs/${encodeURIComponent(orgName)}`);
+      orgs.push({
+        id: `github-org-${org.login.toLowerCase()}`,
+        university_id: university.id,
+        university_name: university.name,
+        login: org.login,
+        name: org.name || org.login,
+        description: org.description || '',
+        html_url: org.html_url,
+        public_repos: Number(org.public_repos || 0),
+        followers: Number(org.followers || 0),
+        avatar_url: org.avatar_url || '',
+        last_scanned: now,
+      });
+
+      const orgRepos = await fetchGithubJson(`/orgs/${encodeURIComponent(org.login)}/repos?sort=updated&direction=desc&per_page=${repoLimit}`);
+      for (const repo of Array.isArray(orgRepos) ? orgRepos : []) {
+        const repoId = `github-repo-${repo.id}`;
+        const previousSnap = await db.collection('github_repo_snapshots')
+          .where('repo_id', '==', repoId)
+          .orderBy('snapshot_at', 'desc')
+          .limit(1)
+          .get()
+          .catch(() => null);
+        const previous = previousSnap?.docs?.[0]?.data();
+        const score = repoMomentumScore(repo, previous);
+        const normalized = {
+          id: repoId,
+          university_id: university.id,
+          university_name: university.name,
+          org_login: org.login,
+          repo_full_name: repo.full_name,
+          name: repo.name,
+          description: repo.description || '',
+          html_url: repo.html_url,
+          language: repo.language || '',
+          topics: repo.topics || [],
+          stars: Number(repo.stargazers_count || 0),
+          forks: Number(repo.forks_count || 0),
+          watchers: Number(repo.watchers_count || 0),
+          open_issues: Number(repo.open_issues_count || 0),
+          default_branch: repo.default_branch || '',
+          pushed_at: repo.pushed_at || '',
+          created_at: repo.created_at || '',
+          updated_at: repo.updated_at || '',
+          momentum_score: score,
+          last_scanned: now,
+        };
+        repos.push(normalized);
+        snapshots.push({
+          id: `${repoId}-${now.replace(/[:.]/g, '-')}`,
+          repo_id: repoId,
+          repo_full_name: repo.full_name,
+          university_id: university.id,
+          org_login: org.login,
+          snapshot_at: now,
+          stars: normalized.stars,
+          forks: normalized.forks,
+          watchers: normalized.watchers,
+          open_issues: normalized.open_issues,
+          pushed_at: normalized.pushed_at,
+          momentum_score: score,
+        });
+      }
+    } catch (err) {
+      console.warn('[AutoNateAI Intel Functions] GitHub org scan failed', university.id, orgName, err instanceof Error ? err.message : err);
+    }
+  }
+  return { orgs, repos, snapshots };
+}
+
+function universityNarrative(university, repos, papers) {
+  const topRepo = repos.slice().sort((a, b) => Number(b.momentum_score || 0) - Number(a.momentum_score || 0))[0];
+  const latestPaper = papers.slice().sort((a, b) => String(b.published_at || '').localeCompare(String(a.published_at || '')))[0];
+  if (topRepo && latestPaper) {
+    return `${university.short_name} is showing an active research-to-code signal: ${topRepo.repo_full_name} is the strongest current GitHub momentum node while recent arXiv activity includes "${latestPaper.title}".`;
+  }
+  if (topRepo) return `${university.short_name} has active open-source movement led by ${topRepo.repo_full_name}, with repo momentum driven by stars, forks, and recent updates.`;
+  if (latestPaper) return `${university.short_name} has recent arXiv research activity including "${latestPaper.title}", but no mapped GitHub repository signal yet.`;
+  return `${university.short_name} is seeded for monitoring; GitHub and arXiv signals will strengthen as scanner coverage expands.`;
+}
+
+async function runUniversityResearchScan({ limit = 100, repoLimit = 5, arxivLimit = 5 } = {}) {
+  const scanStarted = new Date().toISOString();
+  const universities = researchUniversities.slice(0, Math.min(limit, researchUniversities.length));
+  await writeCollection('research_universities', researchUniversities.map((u, index) => ({
+    ...u,
+    rank_seed: index + 1,
+    type: 'research_university',
+    last_seeded: scanStarted,
+  })));
+
+  const allOrgs = [];
+  const allRepos = [];
+  const allSnapshots = [];
+  const allPapers = [];
+  const rollups = [];
+  const arxivCorpus = await fetchRecentArxivCorpus(Math.max(250, universities.length * arxivLimit)).catch((err) => {
+    console.warn('[AutoNateAI Intel Functions] arXiv corpus scan failed', err instanceof Error ? err.message : err);
+    return [];
+  });
+
+  for (const university of universities) {
+    const github = await scanUniversityGithub(university, { repoLimit });
+    const papers = matchArxivPapersForUniversity(arxivCorpus, university, arxivLimit);
+    allOrgs.push(...github.orgs);
+    allRepos.push(...github.repos);
+    allSnapshots.push(...github.snapshots);
+    allPapers.push(...papers);
+
+    const stars = github.repos.reduce((sum, repo) => sum + Number(repo.stars || 0), 0);
+    const forks = github.repos.reduce((sum, repo) => sum + Number(repo.forks || 0), 0);
+    const topMomentum = Math.max(0, ...github.repos.map((repo) => Number(repo.momentum_score || 0)));
+    const score = Math.round(Math.min(100, topMomentum * 0.55 + Math.min(25, github.repos.length * 3) + Math.min(20, papers.length * 4) + Math.min(15, Math.log10(stars + forks + 1) * 6)));
+    rollups.push({
+      id: university.id,
+      ...university,
+      type: 'university_research',
+      repo_count: github.repos.length,
+      org_count: github.orgs.length,
+      arxiv_paper_count: papers.length,
+      total_stars: stars,
+      total_forks: forks,
+      top_momentum_score: topMomentum,
+      opportunity_score: score,
+      top_repos: github.repos.slice().sort((a, b) => Number(b.momentum_score || 0) - Number(a.momentum_score || 0)).slice(0, 5).map((repo) => ({
+        repo_full_name: repo.repo_full_name,
+        html_url: repo.html_url,
+        stars: repo.stars,
+        forks: repo.forks,
+        momentum_score: repo.momentum_score,
+        language: repo.language,
+      })),
+      recent_papers: papers.slice(0, 5).map((paper) => ({
+        arxiv_id: paper.arxiv_id,
+        title: paper.title,
+        published_at: paper.published_at,
+        source_url: paper.source_url,
+        categories: paper.categories,
+      })),
+      narrative: universityNarrative(university, github.repos, papers),
+      scan_started_at: scanStarted,
+      last_scanned: new Date().toISOString(),
+    });
+    await sleep(200);
+  }
+
+  if (allOrgs.length) await writeCollection('github_university_orgs', allOrgs);
+  if (allRepos.length) await writeCollection('github_university_repos', allRepos);
+  if (allSnapshots.length) await writeCollection('github_repo_snapshots', allSnapshots);
+  if (allPapers.length) await writeCollection('arxiv_papers', allPapers);
+  if (rollups.length) await writeCollection('university_research_signals', rollups);
+  await writeCollection('university_research_scans', [{
+    id: `university-research-${scanStarted.replace(/[:.]/g, '-')}`,
+    scan_started_at: scanStarted,
+    scan_finished_at: new Date().toISOString(),
+    university_count: universities.length,
+    org_count: allOrgs.length,
+    repo_count: allRepos.length,
+    repo_snapshot_count: allSnapshots.length,
+    arxiv_paper_count: allPapers.length,
+  }]);
+  jsonCache.clear();
+  return {
+    university_count: universities.length,
+    org_count: allOrgs.length,
+    repo_count: allRepos.length,
+    repo_snapshot_count: allSnapshots.length,
+    arxiv_paper_count: allPapers.length,
+    timestamp: new Date().toISOString(),
+  };
 }
 
 function parseRSSItems(xml, sourceName) {
@@ -3426,6 +3728,65 @@ app.all('/api/hopewell/update', async (req, res) => {
   }
 });
 
+app.get('/api/university-research', cache(300000, async () => {
+  let snap = await db.collection('university_research_signals').orderBy('opportunity_score', 'desc').limit(150).get();
+  if (snap.empty) {
+    const seeded = researchUniversities.map((u, index) => ({
+      ...u,
+      id: u.id,
+      type: 'university_research',
+      rank_seed: index + 1,
+      repo_count: 0,
+      org_count: Array.isArray(u.github_orgs) ? u.github_orgs.length : 0,
+      arxiv_paper_count: 0,
+      total_stars: 0,
+      total_forks: 0,
+      opportunity_score: 10,
+      top_momentum_score: 0,
+      top_repos: [],
+      recent_papers: [],
+      narrative: `${u.short_name} is seeded for university research intelligence monitoring.`,
+      last_scanned: '',
+    }));
+    return { universities: seeded, total: seeded.length, persisted: false, timestamp: new Date().toISOString() };
+  }
+  const universities = snap.docs.map((doc) => doc.data());
+  return { universities, total: universities.length, persisted: true, timestamp: new Date().toISOString() };
+}));
+
+app.get('/api/university-research/repos', cache(300000, async (req) => {
+  const universityId = String(req.query.university_id || '');
+  const limit = Math.min(Number(req.query.limit || 500), 2000);
+  let query = db.collection('github_university_repos').orderBy('momentum_score', 'desc').limit(limit);
+  if (universityId) query = db.collection('github_university_repos').where('university_id', '==', universityId).orderBy('momentum_score', 'desc').limit(limit);
+  const snap = await query.get();
+  const repos = snap.docs.map((doc) => doc.data());
+  return { repos, total: repos.length, timestamp: new Date().toISOString() };
+}));
+
+app.get('/api/university-research/papers', cache(300000, async (req) => {
+  const universityId = String(req.query.university_id || '');
+  const limit = Math.min(Number(req.query.limit || 500), 2000);
+  let query = db.collection('arxiv_papers').orderBy('published_at', 'desc').limit(limit);
+  if (universityId) query = db.collection('arxiv_papers').where('university_id', '==', universityId).orderBy('published_at', 'desc').limit(limit);
+  const snap = await query.get();
+  const papers = snap.docs.map((doc) => doc.data());
+  return { papers, total: papers.length, timestamp: new Date().toISOString() };
+}));
+
+app.all('/api/university-research/update', async (req, res) => {
+  try {
+    const limit = Math.min(Number(req.query.limit || req.body?.limit || 100), 100);
+    const repoLimit = Math.min(Number(req.query.repo_limit || req.body?.repo_limit || 5), 20);
+    const arxivLimit = Math.min(Number(req.query.arxiv_limit || req.body?.arxiv_limit || 5), 20);
+    const result = await runUniversityResearchScan({ limit, repoLimit, arxivLimit });
+    res.json(result);
+  } catch (err) {
+    console.error('[AutoNateAI Intel Functions] University research update failed', err);
+    res.status(500).json({ error: 'University research update failed', detail: err instanceof Error ? err.message : 'Unknown error' });
+  }
+});
+
 app.get('/api/community-capability-summary', cache(300000, async () => {
   const snap = await db.collection('community_capability_summary').limit(200).get();
   const summaries = snap.docs.map((doc) => doc.data());
@@ -3665,4 +4026,16 @@ export const dailyHudPhaPull = onSchedule({
   await persistHudAwards(awards);
   await updatePowerMap();
   console.log(`[AutoNateAI Intel] Daily HUD PHA pull stored ${roster.length} PHAs and ${awards.length} awards for ${yesterday}`);
+});
+
+export const universityResearchScanner = onSchedule({
+  region: 'us-central1',
+  schedule: '0 6,14,22 * * *',
+  timeZone: 'America/Chicago',
+  timeoutSeconds: 540,
+  memory: '512MiB',
+  serviceAccount: 'firebase-adminsdk-fbsvc@autonateai-learning-hub.iam.gserviceaccount.com',
+}, async () => {
+  const result = await runUniversityResearchScan({ limit: 100, repoLimit: 5, arxivLimit: 5 });
+  console.log('[AutoNateAI Intel] University research scanner complete', result);
 });

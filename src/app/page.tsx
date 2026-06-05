@@ -276,6 +276,7 @@ export default function Dashboard() {
     hud_pha_flows: false,
     sbir_recipients: false,
     education_orgs: false,
+    university_research: true,
     workforce_orgs: false,
     health_orgs: false,
     funded_faith_orgs: false,
@@ -560,6 +561,10 @@ export default function Dashboard() {
     if (activeLayers.education_orgs && !layerFetchedRef.current.has('education_orgs')) {
       fetchEndpoint('/api/education-orgs', d => ({ education_orgs: d.orgs }));
       layerFetchedRef.current.add('education_orgs');
+    }
+    if (activeLayers.university_research && !layerFetchedRef.current.has('university_research')) {
+      fetchEndpoint('/api/university-research', d => ({ university_research: d.universities }))
+        .then(ok => { if (ok) layerFetchedRef.current.add('university_research'); });
     }
     if (activeLayers.workforce_orgs && !layerFetchedRef.current.has('workforce_orgs')) {
       fetchEndpoint('/api/workforce-orgs', d => ({ workforce_orgs: d.orgs }));

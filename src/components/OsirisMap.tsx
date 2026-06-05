@@ -137,7 +137,7 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
       createDot(map, 'dot-cctv', '#39FF14', 10);
 
       // Sources
-      const sources = ['flights','military','jets','private-fl','satellites','earthquakes','gdelt','gps-jamming','day-night','cctv','fires','weather','infrastructure','hud-pha-flows','sbir-recipients','education-orgs','workforce-orgs','health-orgs','funded-faith-orgs','sikeston-businesses','sikeston-events','hopewell-businesses','hopewell-events','federal-power','power-edges','maritime','maritime-choke','maritime-ships','live-news','sigint-news','conflict-zones', 'war-alerts-targets', 'war-alerts-lines', 'balloons', 'radiation', 'ip-sweep-devices', 'ip-sweep-pulse', 'ip-sweep-connections', 'scan-targets'];
+      const sources = ['flights','military','jets','private-fl','satellites','earthquakes','gdelt','gps-jamming','day-night','cctv','fires','weather','infrastructure','hud-pha-flows','sbir-recipients','education-orgs','university-research','workforce-orgs','health-orgs','funded-faith-orgs','sikeston-businesses','sikeston-events','hopewell-businesses','hopewell-events','federal-power','power-edges','maritime','maritime-choke','maritime-ships','live-news','sigint-news','conflict-zones', 'war-alerts-targets', 'war-alerts-lines', 'balloons', 'radiation', 'ip-sweep-devices', 'ip-sweep-pulse', 'ip-sweep-connections', 'scan-targets'];
       sources.forEach(s => map.addSource(s, { type: 'geojson', data: EMPTY_FC }));
 
       map.addSource('country-color-areas', { type: 'geojson', data: COUNTRY_GEOJSON_URL });
@@ -380,6 +380,25 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
       addCapabilityLayer('workforce-org', 'workforce-orgs', '#00E676');
       addCapabilityLayer('health-org', 'health-orgs', '#FF4081');
       addCapabilityLayer('funded-faith-org', 'funded-faith-orgs', '#FFF7CC');
+
+      map.addLayer({ id: 'university-research-glow', type: 'circle', source: 'university-research', paint: {
+        'circle-radius': ['interpolate',['linear'],['get','opportunity_score'], 0,8, 50,18, 100,34],
+        'circle-color': '#A3E635',
+        'circle-opacity': ['interpolate',['linear'],['zoom'], 2,0.14, 6,0.08, 10,0.03],
+        'circle-blur': 1.1,
+      }});
+      map.addLayer({ id: 'university-research-dots', type: 'circle', source: 'university-research', paint: {
+        'circle-radius': ['interpolate',['linear'],['get','opportunity_score'], 0,4, 50,7, 100,11],
+        'circle-color': ['interpolate',['linear'],['get','opportunity_score'], 0,'#64748B', 35,'#56CCF2', 70,'#A3E635', 100,'#F2C94C'],
+        'circle-opacity': 0.86,
+        'circle-stroke-width': 1.5,
+        'circle-stroke-color': '#081105',
+        'circle-stroke-opacity': 0.85,
+      }});
+      map.addLayer({ id: 'university-research-label', type: 'symbol', source: 'university-research', minzoom: 4, layout: {
+        'text-field': ['get','short_name'], 'text-size': 9, 'text-font': ['Open Sans Bold'],
+        'text-offset': [0, 1.6], 'text-max-width': 12, 'text-allow-overlap': false,
+      }, paint: { 'text-color': '#D9FF99', 'text-halo-color': '#061105', 'text-halo-width': 1.1 }});
 
       map.addLayer({ id: 'sikeston-business-glow', type: 'circle', source: 'sikeston-businesses', paint: {
         'circle-radius': ['interpolate',['linear'],['zoom'], 8,8, 12,14, 15,20],
@@ -1009,6 +1028,31 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
       });
     });
 
+    map.on('click', 'university-research-dots', e => {
+      const p = e.features?.[0]?.properties as any;
+      if (!p) return;
+      const coords = (e.features![0].geometry as any).coordinates;
+      const topRepos = (() => {
+        try { return JSON.parse(p.top_repos || '[]'); } catch { return []; }
+      })();
+      const recentPapers = (() => {
+        try { return JSON.parse(p.recent_papers || '[]'); } catch { return []; }
+      })();
+      const repoLine = topRepos[0] ? `${topRepos[0].repo_full_name} · ${topRepos[0].stars || 0}★ · score ${topRepos[0].momentum_score || 0}` : 'No repo signal yet';
+      const paperLine = recentPapers[0] ? recentPapers[0].title : 'No arXiv signal yet';
+      popup(coords, `<div style="${pStyle}border:1px solid rgba(163,230,53,0.35);">
+        <div style="color:#D9FF99;font-size:14px;font-weight:700;margin-bottom:4px;">${p.name || 'Research University'}</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;font-size:9px;margin-bottom:8px;">
+          <div><span style="color:#5C5A54;">OPP</span><br/><span style="color:#A3E635;font-weight:700;">${p.opportunity_score || 0}</span></div>
+          <div><span style="color:#5C5A54;">REPOS</span><br/><span style="color:#E8E6E0;">${p.repo_count || 0}</span></div>
+          <div><span style="color:#5C5A54;">PAPERS</span><br/><span style="color:#E8E6E0;">${p.arxiv_paper_count || 0}</span></div>
+        </div>
+        <div style="font-size:9px;color:#A3E635;line-height:1.4;margin-bottom:6px;">${repoLine}</div>
+        <div style="font-size:9px;color:#56CCF2;line-height:1.4;margin-bottom:6px;">${String(paperLine).slice(0, 180)}</div>
+        <div style="font-size:9px;color:#aaa;line-height:1.45;">${String(p.narrative || '').slice(0, 260)}</div>
+      </div>`);
+    });
+
     map.on('click', 'sikeston-business-dots', e => {
       const p = e.features?.[0]?.properties as any;
       if (!p) return;
@@ -1067,7 +1111,7 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
       showRegionalEventPopup(p, coords, '#4FB3FF', 'HOPEWELL EVENT');
     });
 
-    ['hud-pha-bubbles', 'sbir-recipient-dots', 'education-org-dots', 'workforce-org-dots', 'health-org-dots', 'funded-faith-org-dots', 'sikeston-business-dots', 'sikeston-event-dots', 'hopewell-business-dots', 'hopewell-event-dots', 'power-dots'].forEach(layer => {
+    ['hud-pha-bubbles', 'sbir-recipient-dots', 'education-org-dots', 'university-research-dots', 'workforce-org-dots', 'health-org-dots', 'funded-faith-org-dots', 'sikeston-business-dots', 'sikeston-event-dots', 'hopewell-business-dots', 'hopewell-event-dots', 'power-dots'].forEach(layer => {
       map.on('mouseenter', layer, () => { map.getCanvas().style.cursor = 'pointer'; });
       map.on('mouseleave', layer, () => { map.getCanvas().style.cursor = ''; });
     });
@@ -1243,6 +1287,21 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
     setGeo('health-orgs', activeLayers.health_orgs ? toCapabilityFeatures(data.health_orgs, 'health_org') : []);
     setGeo('funded-faith-orgs', activeLayers.funded_faith_orgs ? toCapabilityFeatures(data.funded_faith_orgs, 'funded_faith_org') : []);
   }, [mapReady, data.education_orgs, data.workforce_orgs, data.health_orgs, data.funded_faith_orgs, activeLayers.education_orgs, activeLayers.workforce_orgs, activeLayers.health_orgs, activeLayers.funded_faith_orgs, setGeo]);
+
+  useEffect(() => {
+    if (!mapReady) return;
+    setGeo('university-research', activeLayers.university_research && data.university_research ? data.university_research
+      .filter((u: any) => Number.isFinite(Number(u.lng)) && Number.isFinite(Number(u.lat)))
+      .map((u: any) => ({
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [Number(u.lng), Number(u.lat)] },
+        properties: {
+          ...u,
+          top_repos: JSON.stringify(u.top_repos || []),
+          recent_papers: JSON.stringify(u.recent_papers || []),
+        }
+      })) : []);
+  }, [mapReady, data.university_research, activeLayers.university_research, setGeo]);
 
   useEffect(() => {
     if (!mapReady) return;
@@ -1422,6 +1481,7 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
     setVis(['hud-pha-bubbles','hud-pha-label'], activeLayers.hud_pha_flows);
     setVis(['sbir-recipient-glow','sbir-recipient-dots','sbir-recipient-label'], activeLayers.sbir_recipients);
     setVis(['education-org-glow','education-org-dots','education-org-label'], activeLayers.education_orgs);
+    setVis(['university-research-glow','university-research-dots','university-research-label'], activeLayers.university_research);
     setVis(['workforce-org-glow','workforce-org-dots','workforce-org-label'], activeLayers.workforce_orgs);
     setVis(['health-org-glow','health-org-dots','health-org-label'], activeLayers.health_orgs);
     setVis(['funded-faith-org-glow','funded-faith-org-dots','funded-faith-org-label'], activeLayers.funded_faith_orgs);
