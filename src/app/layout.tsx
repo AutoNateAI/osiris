@@ -2,9 +2,10 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 const SITE_URL = "https://intel.autonateai.com";
-const SITE_NAME = "AutoNateAI Intel";
-const SITE_TITLE = "AutoNateAI Intel — Open Source Intelligence Platform | Live Flight Tracking, CCTV, OSINT Tools & More";
-const SITE_DESCRIPTION = "AutoNateAI's open-source intelligence command center. Track 10,000+ aircraft, 2,000 satellites, and worldwide CCTV cameras in real time on a 3D globe. Run network scans, DNS lookups, WHOIS queries, SSL cert analysis, and threat intelligence workflows from your browser. 20+ live data feeds including earthquakes, wildfires, nuclear facilities, cyber threats, and global conflicts.";
+const SITE_NAME = "AutoNateAI";
+const SITE_TITLE = "AutoNateAI — Regional Opportunity Intelligence";
+const SITE_DESCRIPTION = "Turn local organizations, funding, workforce, education, research, and movement data into opportunity maps and recommended actions for every region you serve.";
+const OG_IMAGE = "/marketing/autonate-og-preview.png";
 
 export const viewport: Viewport = {
   themeColor: "#D4AF37",
@@ -18,7 +19,7 @@ export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   title: {
     default: SITE_TITLE,
-    template: "%s | AutoNateAI Intel",
+    template: "%s | AutoNateAI",
   },
   description: SITE_DESCRIPTION,
   keywords: [
@@ -90,29 +91,29 @@ export const metadata: Metadata = {
     canonical: SITE_URL,
   },
   openGraph: {
-    title: "AutoNateAI Intel — Live Flights, CCTV, Satellites & OSINT Tools",
-    description: "Track 10K+ aircraft, 2K satellites and worldwide CCTV on a 3D globe. Run network, DNS, WHOIS and threat intel workflows from your browser.",
+    title: SITE_TITLE,
+    description: SITE_DESCRIPTION,
     type: "website",
     siteName: SITE_NAME,
     locale: "en_US",
     url: SITE_URL,
     images: [
       {
-        url: `${SITE_URL}/og-image.png`,
+        url: OG_IMAGE,
         width: 1200,
         height: 630,
-        alt: "AutoNateAI Intel — Open Source Intelligence Platform with Live Tracking and OSINT Tools",
+        alt: "AutoNateAI Regional Opportunity Intelligence preview showing a glowing U.S. opportunity map and analytics dashboard",
         type: "image/png",
       },
     ],
   },
   twitter: {
     card: "summary_large_image",
-    title: "AutoNateAI Intel — Live Tracking + OSINT Tools",
-    description: "Track 10K+ flights, satellites and CCTV worldwide. Run network, DNS and WHOIS workflows from your browser.",
+    title: SITE_TITLE,
+    description: SITE_DESCRIPTION,
     creator: "@AutoNateAI",
     site: "@AutoNateAI",
-    images: [`${SITE_URL}/og-image.png`],
+    images: [OG_IMAGE],
   },
   category: "technology",
   classification: "Intelligence & Security",
@@ -165,7 +166,7 @@ const jsonLd = {
     "Interactive 3D globe with day/night cycle",
     "Region intelligence dossier reports",
   ],
-  screenshot: `${SITE_URL}/og-image.png`,
+  screenshot: `${SITE_URL}${OG_IMAGE}`,
   author: {
     "@type": "Organization",
     name: "AutoNateAI",
