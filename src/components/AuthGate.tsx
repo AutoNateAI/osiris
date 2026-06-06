@@ -31,10 +31,16 @@ export default function AuthGate({ children }: AuthGateProps) {
 
   useEffect(() => {
     setPath(window.location.pathname);
-    return onAuthStateChanged(auth, currentUser => {
+    const timeout = window.setTimeout(() => setLoading(false), 2500);
+    const unsubscribe = onAuthStateChanged(auth, currentUser => {
+      window.clearTimeout(timeout);
       setUser(currentUser);
       setLoading(false);
     });
+    return () => {
+      window.clearTimeout(timeout);
+      unsubscribe();
+    };
   }, []);
 
   useEffect(() => {

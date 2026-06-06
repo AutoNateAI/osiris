@@ -16,6 +16,7 @@ import {
   LockKeyhole,
   Mail,
   Map,
+  MonitorPlay,
   Network,
   Shield,
   Sparkles,
@@ -163,6 +164,40 @@ const blogs: Blog[] = [
   },
 ];
 
+const appScreenshots = [
+  {
+    title: 'Live command center',
+    label: 'Portal',
+    src: '/marketing/osiris-portal-map.png',
+    description: 'The authenticated Osiris portal with regional, aviation, market, and intelligence layers active.',
+  },
+  {
+    title: 'University Research Explorer',
+    label: 'Research',
+    src: '/marketing/osiris-research-explorer.png',
+    description: 'Top universities, GitHub repositories, arXiv signals, language mix, and repo momentum in one explorer.',
+  },
+  {
+    title: 'Region Watch Explorer',
+    label: 'Regions',
+    src: '/marketing/osiris-region-watch.png',
+    description: 'Watched cities with businesses, chamber events, SBIR/STTR, HUD, departments, and local movement data.',
+  },
+  {
+    title: 'Airport Flow Explorer',
+    label: 'Aviation',
+    src: '/marketing/osiris-airport-flows.png',
+    description: 'Airport and route flow intelligence designed for state and national movement analysis.',
+  },
+];
+
+const productShotBySlug: Record<string, string> = {
+  'business-growth-navigator': '/marketing/osiris-region-watch.png',
+  'church-community-intelligence': '/marketing/osiris-region-watch.png',
+  'grant-intelligence': '/marketing/osiris-region-watch.png',
+  'economic-development-command-center': '/marketing/osiris-portal-map.png',
+};
+
 function pathFromWindow() {
   if (typeof window === 'undefined') return '/';
   return window.location.pathname.replace(/\/$/, '') || '/';
@@ -285,6 +320,212 @@ function DemoPanel() {
   );
 }
 
+function CapabilityPreview() {
+  const modules = [
+    { label: 'Region Watch', value: '2 cities', detail: 'Businesses, events, SBIR, HUD, aircraft', color: '#14b8a6' },
+    { label: 'Research Explorer', value: '100 schools', detail: 'Repos, arXiv, momentum, languages', color: '#84cc16' },
+    { label: 'Airport Flows', value: 'route graph', detail: 'Origin, destination, airport corridors', color: '#0ea5e9' },
+    { label: 'Opportunity Engine', value: 'actions', detail: 'Partners, grants, outreach, programs', color: '#f59e0b' },
+  ];
+
+  return (
+    <section className="mx-auto max-w-7xl px-5 py-16">
+      <div className="grid gap-8 lg:grid-cols-[0.9fr_1.1fr] items-center">
+        <div>
+          <div className="text-sm font-bold uppercase tracking-[0.2em] text-slate-400">See the capability</div>
+          <h2 className="mt-3 text-4xl md:text-5xl font-black tracking-tight text-slate-950">One command center, packaged into products people can buy.</h2>
+          <p className="mt-5 text-lg leading-8 text-slate-600">Osiris already connects local businesses, chamber events, federal funding, public agencies, university research, and live movement data. The marketing site now frames that capability around customer decisions.</p>
+          <div className="mt-6 grid gap-3 sm:grid-cols-2">
+            {modules.map((module) => (
+              <div key={module.label} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                <div className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">{module.label}</div>
+                <div className="mt-2 text-2xl font-black" style={{ color: module.color }}>{module.value}</div>
+                <div className="mt-1 text-sm leading-6 text-slate-600">{module.detail}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="rounded-[2rem] border border-slate-200 bg-white p-4 shadow-2xl shadow-slate-200">
+          <div className="rounded-[1.5rem] bg-slate-950 p-4 text-white">
+            <div className="flex items-center justify-between">
+              <div className="font-mono text-xs tracking-[0.22em] text-amber-300">AUTONATEAI OSIRIS</div>
+              <div className="rounded-full bg-emerald-400/15 px-3 py-1 text-xs text-emerald-300">6 feeds active</div>
+            </div>
+            <div className="mt-4 grid gap-3 lg:grid-cols-[0.75fr_1.25fr]">
+              <div className="space-y-2">
+                {['Sikeston, MO', 'Hopewell, VA', 'University Research', 'Airport Flows'].map((item, index) => (
+                  <div key={item} className={`rounded-xl border p-3 ${index === 1 ? 'border-teal-300/40 bg-teal-300/10' : 'border-white/10 bg-white/[0.04]'}`}>
+                    <div className="text-sm font-semibold">{item}</div>
+                    <div className="mt-1 text-xs text-slate-400">{index === 1 ? '520 records scoped' : 'signal ready'}</div>
+                  </div>
+                ))}
+              </div>
+              <div className="rounded-2xl border border-white/10 bg-[#07111f] p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="text-xs text-slate-400">Selected node</div>
+                    <div className="mt-1 text-lg font-bold">Hopewell Growth Opportunity</div>
+                  </div>
+                  <div className="rounded-full bg-amber-300/15 px-3 py-1 text-xs text-amber-200">Score 87</div>
+                </div>
+                <div className="mt-4 grid gap-2">
+                  {[
+                    ['Potential partners', '14', '#2dd4bf'],
+                    ['Relevant grants', '3', '#fbbf24'],
+                    ['Workforce pipelines', '2', '#a78bfa'],
+                    ['Recommended outreach', '10', '#38bdf8'],
+                  ].map(([label, value, color]) => (
+                    <div key={label} className="rounded-xl bg-white/[0.04] border border-white/10 p-3 flex items-center justify-between">
+                      <span className="text-sm text-slate-300">{label}</span>
+                      <span className="font-black" style={{ color }}>{value}</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-4 rounded-xl bg-emerald-300/10 border border-emerald-300/20 p-3 text-sm leading-6 text-emerald-100">Recommended next step: schedule a workforce partnership meeting with the chamber, school district, and local employer cluster.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function AppMediaShowcase({ compact = false }: { compact?: boolean }) {
+  return (
+    <section className={compact ? 'mx-auto max-w-7xl px-5 pb-16' : 'bg-white'}>
+      <div className={compact ? '' : 'mx-auto max-w-7xl px-5 py-16'}>
+        <div className="grid gap-8 lg:grid-cols-[0.85fr_1.15fr] lg:items-end">
+          <div>
+            <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-sm font-bold text-slate-600">
+              <MonitorPlay className="h-4 w-4 text-teal-700" /> Real Osiris capture
+            </div>
+            <h2 className="mt-4 text-4xl md:text-5xl font-black tracking-tight text-slate-950">Show the product, not just the promise.</h2>
+            <p className="mt-4 text-lg leading-8 text-slate-600">These are live authenticated portal captures from the same Osiris surface customers will use: map layers, region watch, research signals, and route intelligence.</p>
+          </div>
+          <div className="rounded-[2rem] border border-slate-200 bg-slate-950 p-3 shadow-2xl shadow-slate-200">
+            <video
+              className="aspect-video w-full rounded-[1.35rem] object-cover"
+              src="/marketing/osiris-demo.webm"
+              autoPlay
+              muted
+              loop
+              playsInline
+              poster="/marketing/osiris-portal-map.png"
+            />
+          </div>
+        </div>
+
+        <div className="mt-8 grid gap-5 md:grid-cols-2 xl:grid-cols-4">
+          {appScreenshots.map((shot) => (
+            <a key={shot.src} href={shot.src} className="group overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm transition-all hover:-translate-y-1 hover:shadow-xl">
+              <div className="aspect-[16/10] overflow-hidden bg-slate-950">
+                <img src={shot.src} alt={`${shot.title} screenshot`} className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" />
+              </div>
+              <div className="p-5">
+                <div className="text-xs font-black uppercase tracking-[0.18em] text-teal-700">{shot.label}</div>
+                <h3 className="mt-2 text-xl font-black text-slate-950">{shot.title}</h3>
+                <p className="mt-2 text-sm leading-6 text-slate-600">{shot.description}</p>
+              </div>
+            </a>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function PersonaProof() {
+  const rows = [
+    ['Business owner', 'Who should I call this week?', '10 recommended outreach targets'],
+    ['Church leader', 'Where can we serve with partners?', '3 program concepts and 6 partners'],
+    ['Grant writer', 'What funding fits this idea?', '12 opportunities and 8 similar awards'],
+    ['EDO director', 'What industries should we recruit?', '4 industry theses with workforce proof'],
+  ];
+
+  return (
+    <section className="bg-white">
+      <div className="mx-auto max-w-7xl px-5 py-16">
+        <div className="max-w-3xl">
+          <div className="text-sm font-bold uppercase tracking-[0.2em] text-slate-400">The buyer does not buy layers</div>
+          <h2 className="mt-3 text-4xl md:text-5xl font-black tracking-tight">They buy the answer to a decision.</h2>
+        </div>
+        <div className="mt-8 overflow-hidden rounded-[2rem] border border-slate-200">
+          {rows.map(([buyer, question, output], index) => (
+            <div key={buyer} className={`grid gap-4 p-5 md:grid-cols-[0.8fr_1.1fr_1.1fr] ${index % 2 ? 'bg-slate-50' : 'bg-white'} border-b border-slate-200 last:border-b-0`}>
+              <div className="font-black text-slate-950">{buyer}</div>
+              <div className="text-slate-600">{question}</div>
+              <div className="font-semibold text-teal-700">{output}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function ConversionBand() {
+  return (
+    <section className="mx-auto max-w-7xl px-5 py-16">
+      <div className="rounded-[2rem] bg-slate-950 p-8 md:p-12 text-white overflow-hidden relative">
+        <div className="absolute -right-16 -top-16 h-64 w-64 rounded-full bg-teal-300/20 blur-3xl" />
+        <div className="absolute right-28 bottom-0 h-52 w-52 rounded-full bg-amber-300/20 blur-3xl" />
+        <div className="relative grid gap-8 lg:grid-cols-[1fr_auto] lg:items-center">
+          <div>
+            <div className="text-sm font-bold uppercase tracking-[0.22em] text-amber-300">Ready to package your region?</div>
+            <h2 className="mt-3 text-4xl font-black tracking-tight">Pick a region. Pull organizations. Generate opportunities. Sell intelligence.</h2>
+            <p className="mt-4 max-w-2xl text-slate-300 leading-7">The fastest path is one vertical, one region, one decision workflow. Then repeat it across cities, counties, and states.</p>
+          </div>
+          <div className="flex flex-wrap gap-3">
+            <a href="/sales" className="rounded-full bg-white px-6 py-3 text-sm font-black text-slate-950">Book demo</a>
+            <a href="/login" className="rounded-full border border-white/25 px-6 py-3 text-sm font-black text-white hover:bg-white/10">Login</a>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function ProductCapabilityMock({ product }: { product: Product }) {
+  const Icon = product.icon;
+  const metricRows = product.metrics.map((metric, index) => ({
+    metric,
+    value: [87, 42, 14, 6][index] || 9,
+  }));
+
+  return (
+    <div className="rounded-[2rem] bg-slate-950 p-4 text-white shadow-2xl shadow-slate-200">
+      <div className="rounded-[1.5rem] border border-white/10 bg-[#08111f] p-5">
+        <div className="flex items-center gap-3">
+          <div className="h-12 w-12 rounded-2xl flex items-center justify-center" style={{ background: `${product.color}24`, color: product.color }}><Icon className="h-6 w-6" /></div>
+          <div>
+            <div className="font-mono text-xs tracking-[0.18em] text-amber-300">LIVE WORKFLOW</div>
+            <div className="text-lg font-bold">{product.name}</div>
+          </div>
+        </div>
+        <div className="mt-5 rounded-2xl bg-white/[0.04] border border-white/10 p-4">
+          <div className="text-xs text-slate-400">Advisor prompt</div>
+          <div className="mt-2 text-sm leading-6 text-slate-200">{product.workflow[product.workflow.length - 1]}</div>
+        </div>
+        <div className="mt-4 grid gap-3">
+          {metricRows.map((row) => (
+            <div key={row.metric} className="rounded-xl border border-white/10 bg-white/[0.04] p-3">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-slate-300">{row.metric}</span>
+                <span className="font-black" style={{ color: product.color }}>{row.value}</span>
+              </div>
+              <div className="mt-2 h-1.5 rounded-full bg-white/10 overflow-hidden">
+                <div className="h-full rounded-full" style={{ width: `${Math.min(100, row.value)}%`, background: product.color }} />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function LandingPage() {
   return (
     <MarketingShell>
@@ -314,6 +555,9 @@ function LandingPage() {
         </div>
       </section>
 
+      <CapabilityPreview />
+      <AppMediaShowcase />
+
       <section className="mx-auto max-w-7xl px-5 py-16">
         <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
           <div>
@@ -327,7 +571,9 @@ function LandingPage() {
         </div>
       </section>
 
-      <section className="bg-white">
+      <PersonaProof />
+
+      <section className="bg-slate-50">
         <div className="mx-auto max-w-7xl px-5 py-16 grid gap-8 lg:grid-cols-3">
           {[
             ['Region', 'Pick a city, county, state, or custom service area.'],
@@ -342,12 +588,15 @@ function LandingPage() {
           ))}
         </div>
       </section>
+
+      <ConversionBand />
     </MarketingShell>
   );
 }
 
 function ProductPage({ product }: { product: Product }) {
   const Icon = product.icon;
+  const productShot = productShotBySlug[product.slug] || '/marketing/osiris-portal-map.png';
   return (
     <MarketingShell>
       <section className="mx-auto max-w-7xl px-5 py-16 grid gap-10 lg:grid-cols-[0.9fr_1.1fr] items-center">
@@ -360,20 +609,20 @@ function ProductPage({ product }: { product: Product }) {
             <a href="/login" className="rounded-full border border-slate-300 bg-white px-6 py-3 text-sm font-bold text-slate-800">Login</a>
           </div>
         </div>
-        <div className="rounded-[2rem] bg-white p-6 border border-slate-200 shadow-xl">
-          <div className="flex items-center gap-4">
-            <div className="h-14 w-14 rounded-2xl flex items-center justify-center" style={{ background: `${product.color}16`, color: product.color }}><Icon className="h-7 w-7" /></div>
-            <div>
-              <div className="text-sm text-slate-500">{product.audience}</div>
-              <div className="text-2xl font-black">{product.price}</div>
+        <ProductCapabilityMock product={product} />
+      </section>
+      <section className="mx-auto max-w-7xl px-5 pb-16">
+        <div className="overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-2xl shadow-slate-200">
+          <div className="grid gap-0 lg:grid-cols-[0.85fr_1.15fr]">
+            <div className="p-8 md:p-10">
+              <div className="text-sm font-bold uppercase tracking-[0.2em] text-slate-400">From the live Osiris surface</div>
+              <h2 className="mt-3 text-3xl font-black tracking-tight">The sales page now shows the actual interface buyers will see.</h2>
+              <p className="mt-4 leading-7 text-slate-600">{product.summary}</p>
+              <a href="/sales" className="mt-6 inline-flex rounded-full bg-slate-950 px-5 py-3 text-sm font-black text-white">Use this in a demo</a>
             </div>
-          </div>
-          <div className="mt-6 grid gap-3">
-            {product.features.map((feature) => (
-              <div key={feature} className="flex items-center gap-3 rounded-2xl bg-slate-50 p-4 text-sm font-semibold text-slate-700">
-                <CheckCircle2 className="h-5 w-5" style={{ color: product.color }} /> {feature}
-              </div>
-            ))}
+            <div className="bg-slate-950 p-3">
+              <img src={productShot} alt={`${product.name} Osiris screenshot`} className="aspect-video h-full w-full rounded-[1.25rem] object-cover" />
+            </div>
           </div>
         </div>
       </section>
@@ -401,6 +650,25 @@ function ProductPage({ product }: { product: Product }) {
           </div>
         </div>
       </section>
+      <section className="mx-auto max-w-7xl px-5 pb-16">
+        <div className="rounded-[2rem] bg-white p-6 border border-slate-200 shadow-xl">
+          <div className="flex items-center gap-4">
+            <div className="h-14 w-14 rounded-2xl flex items-center justify-center" style={{ background: `${product.color}16`, color: product.color }}><Icon className="h-7 w-7" /></div>
+            <div>
+              <div className="text-sm text-slate-500">{product.audience}</div>
+              <div className="text-2xl font-black">{product.price}</div>
+            </div>
+          </div>
+          <div className="mt-6 grid gap-3 md:grid-cols-5">
+            {product.features.map((feature) => (
+              <div key={feature} className="flex items-center gap-3 rounded-2xl bg-slate-50 p-4 text-sm font-semibold text-slate-700">
+                <CheckCircle2 className="h-5 w-5 shrink-0" style={{ color: product.color }} /> {feature}
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+      <ConversionBand />
     </MarketingShell>
   );
 }
@@ -429,7 +697,42 @@ function SalesPage() {
             </div>
           ))}
         </div>
+        <div className="mt-10">
+          <AppMediaShowcase compact />
+        </div>
+        <div className="mt-10 grid gap-5 lg:grid-cols-[1fr_1fr]">
+          <div className="rounded-[2rem] bg-white border border-slate-200 p-8">
+            <div className="text-sm font-bold uppercase tracking-[0.2em] text-slate-400">Sales motion</div>
+            <h2 className="mt-3 text-3xl font-black">Start with the buyer, then show the map.</h2>
+            <div className="mt-6 space-y-4">
+              {[
+                ['Chamber', 'Show members who to meet, which grants fit, and which events create visibility.'],
+                ['Church', 'Show where need, partners, schools, and service programs intersect.'],
+                ['Grant team', 'Show fundable ideas, precedent awards, and coalition evidence.'],
+                ['EDO', 'Show industry fit, workforce leverage, and recruitment thesis.'],
+              ].map(([name, copy]) => (
+                <div key={name} className="rounded-2xl bg-slate-50 border border-slate-200 p-4">
+                  <div className="font-black">{name}</div>
+                  <div className="mt-1 text-sm leading-6 text-slate-600">{copy}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="rounded-[2rem] bg-slate-950 text-white p-8">
+            <div className="text-sm font-bold uppercase tracking-[0.2em] text-amber-300">Demo script</div>
+            <h2 className="mt-3 text-3xl font-black">The 5-minute close</h2>
+            <div className="mt-6 space-y-4">
+              {['Choose the customer region', 'Show the organizations already loaded', 'Open an entity and reveal opportunity score', 'Generate partners, grants, and outreach', 'Save the action plan'].map((step, index) => (
+                <div key={step} className="flex gap-3">
+                  <div className="h-8 w-8 rounded-full bg-white/10 text-amber-300 flex items-center justify-center font-black">{index + 1}</div>
+                  <div className="pt-1 text-slate-200">{step}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
       </section>
+      <ConversionBand />
     </MarketingShell>
   );
 }
