@@ -1154,7 +1154,7 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
     if (!mapReady) return;
     const toFeatures = (arr: any[]) => (arr || []).map((f: any) => ({
       type: 'Feature' as const, geometry: { type: 'Point' as const, coordinates: [f.lng, f.lat] },
-      properties: { callsign: f.callsign, heading: f.heading || 0, alt: f.alt, model: f.model, speed_knots: f.speed_knots, registration: f.registration, icao24: f.icao24, departure: f.departure, destination: f.destination, departure_name: f.departure_name, destination_name: f.destination_name, route: f.route, route_source: f.route_source },
+      properties: { callsign: f.callsign, heading: f.heading || 0, alt: f.alt, model: f.model, speed_knots: f.speed_knots, registration: f.registration, icao24: f.icao24, departure: f.departure, destination: f.destination, departure_name: f.departure_name, destination_name: f.destination_name, departure_lat: f.departure_lat, departure_lng: f.departure_lng, departure_country: f.departure_country, destination_lat: f.destination_lat, destination_lng: f.destination_lng, destination_country: f.destination_country, route: f.route, route_source: f.route_source },
     }));
     setGeo('flights', activeLayers.flights ? toFeatures(data.commercial_flights) : []);
     setGeo('private-fl', activeLayers.private ? toFeatures(data.private_flights) : []);

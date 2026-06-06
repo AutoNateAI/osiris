@@ -108,8 +108,10 @@ async function fetchFlightRoute(callsign: string) {
       destination_name: airportLabel(destination),
       departure_lat: origin.latitude,
       departure_lng: origin.longitude,
+      departure_country: origin.country_iso_name || '',
       destination_lat: destination.latitude,
       destination_lng: destination.longitude,
+      destination_country: destination.country_iso_name || '',
       route: `${origin.iata_code || origin.icao_code || ''}-${destination.iata_code || destination.icao_code || ''}`,
       route_source: 'adsbdb',
     };

@@ -20,6 +20,7 @@ const LayerPanel = dynamic(() => import('@/components/LayerPanel'));
 const CameraViewer = dynamic(() => import('@/components/CameraViewer'));
 const ResearchExplorer = dynamic(() => import('@/components/ResearchExplorer'));
 const RegionExplorer = dynamic(() => import('@/components/RegionExplorer'));
+const AirportFlowExplorer = dynamic(() => import('@/components/AirportFlowExplorer'));
 
 function useIsMobile() {
   const [isMobile, setIsMobile] = useState(false);
@@ -1031,6 +1032,15 @@ export default function Dashboard() {
             setMapView(v => ({ ...v, zoom }));
           }}
         />
+        <AirportFlowExplorer
+          data={data}
+          activeLayers={activeLayers}
+          setActiveLayers={setActiveLayers}
+          onLocate={(lat, lng, zoom = 8) => {
+            setFlyToLocation({ lat, lng, ts: Date.now() });
+            setMapView(v => ({ ...v, zoom }));
+          }}
+        />
       </div>
 
       {/* ── LIVE FEED VIEWER OVERLAY ── */}
@@ -1213,6 +1223,16 @@ export default function Dashboard() {
                         activeLayers={activeLayers}
                         setActiveLayers={setActiveLayers}
                         onLocate={(lat, lng, zoom = 11) => {
+                          setFlyToLocation({ lat, lng, ts: Date.now() });
+                          setMapView(v => ({ ...v, zoom }));
+                          setMobilePanel(null);
+                        }}
+                      />
+                      <AirportFlowExplorer
+                        data={data}
+                        activeLayers={activeLayers}
+                        setActiveLayers={setActiveLayers}
+                        onLocate={(lat, lng, zoom = 8) => {
                           setFlyToLocation({ lat, lng, ts: Date.now() });
                           setMapView(v => ({ ...v, zoom }));
                           setMobilePanel(null);
